@@ -1,0 +1,311 @@
+@import 'tailwindcss';
+
+@source '../views';
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+
+/*
+| Spec lives in COLORS.md. The :root blocks below are the build of that spec and must
+| be kept in sync with it. Dark mode resolves automatically via prefers-color-scheme.
+*/
+
+:root {
+    /* Surfaces — neutral */
+    --color-neutral-primary-soft: #ffffff;
+    --color-neutral-primary: #ffffff;
+    --color-neutral-primary-medium: #f7f9fc;
+    --color-neutral-primary-strong: #eef2f8;
+    --color-neutral-secondary-soft: #f4f7fb;
+    --color-neutral-secondary: #f1f5fa;
+    --color-neutral-secondary-medium: #e8eef6;
+    --color-neutral-secondary-strong: #dce4ef;
+    --color-neutral-tertiary-soft: #e9eff7;
+    --color-neutral-tertiary: #e4ebf4;
+    --color-neutral-tertiary-medium: #d6dfeb;
+    --color-neutral-quaternary: #c2cede;
+    --color-quaternary-medium: #a7b6cb;
+    --color-gray: #8494aa;
+
+    /* Brand — electric blue */
+    --color-brand-softer: #e6f1ff;
+    --color-brand-soft: #c2ddff;
+    --color-brand: #1b4dff;
+    --color-brand-medium: #4d7bff;
+    --color-brand-strong: #1338cc;
+
+    /* Status */
+    --color-success-soft: #e4fbf2;
+    --color-success: #00b87c;
+    --color-success-medium: #9af0ce;
+    --color-success-strong: #00845c;
+    --color-danger-soft: #ffecee;
+    --color-danger: #e11d48;
+    --color-danger-medium: #ffc5cd;
+    --color-danger-strong: #b3173a;
+    --color-warning-soft: #fff4e5;
+    --color-warning: #e07b00;
+    --color-warning-medium: #ffdfaf;
+    --color-warning-strong: #b35d00;
+
+    /* Utility */
+    --color-dark: #0a0f1f;
+    --color-dark-strong: #050912;
+    --color-disabled: #e9eff7;
+
+    /* Accent */
+    --color-aqua: #00e0ff;
+    --color-gold: #ffb800;
+    --color-violet: #7b3fff;
+    --color-magenta: #ff2e88;
+    --color-lime: #a3e635;
+    --color-ember: #ff6b2c;
+
+    /* Text */
+    --color-white: #ffffff;
+    --color-black: #0a0f1f;
+    --color-heading: #0a0f1f;
+    --color-body: #47546b;
+    --color-body-subtle: #5f6d85;
+    --color-on-brand: #ffffff;
+    --color-on-brand-muted: #dce7ff;
+
+    /* Text — brand */
+    --color-fg-brand-subtle: #4d7bff;
+    --color-fg-brand: #1338cc;
+    --color-fg-brand-strong: #0e2a9e;
+
+    /* Text — status */
+    --color-fg-success: #00845c;
+    --color-fg-success-strong: #006a4a;
+    --color-fg-danger: #b3173a;
+    --color-fg-danger-strong: #8f1230;
+    --color-fg-warning-subtle: #a85800;
+    --color-fg-warning: #8a4500;
+    --color-fg-disabled: #64738a;
+
+    /* Text — accent */
+    --color-fg-gold: #8a5a00;
+    --color-fg-aqua: #00637a;
+    --color-fg-violet: #5a21cc;
+    --color-fg-magenta: #b30055;
+    --color-fg-lime: #4a6b00;
+    --color-fg-ember: #a83800;
+
+    /* Borders */
+    --color-border-dark: #0a0f1f;
+    --color-border-buffer: #ffffff;
+    --color-border-buffer-medium: #ffffff;
+    --color-border-buffer-strong: #ffffff;
+    --color-border-muted: #f4f7fb;
+    --color-border-light-subtle: #e9eff7;
+    --color-border-light: #e9eff7;
+    --color-border-light-medium: #e4ebf4;
+    --color-border-default-subtle: #e8eef6;
+    --color-border-default: #dce4ef;
+    --color-border-default-medium: #c0cdde;
+    --color-border-default-strong: #6e81a0;
+    --color-border-success-subtle: #9af0ce;
+    --color-border-success: #00845c;
+    --color-border-danger-subtle: #ffc5cd;
+    --color-border-danger: #e11d48;
+    --color-border-warning-subtle: #ffdfaf;
+    --color-border-warning: #e07b00;
+    --color-border-brand-subtle: #c2ddff;
+    --color-border-brand-light: #4d7bff;
+    --color-border-brand: #1b4dff;
+    --color-border-dark-subtle: #0a0f1f;
+    --color-border-gold: #b87a00;
+    --color-border-violet: #7b3fff;
+    --color-border-aqua: #009db4;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --color-neutral-primary-soft: #0b1220;
+        --color-neutral-primary: #070c16;
+        --color-neutral-primary-medium: #151e31;
+        --color-neutral-primary-strong: #1e2942;
+        --color-neutral-secondary-soft: #0e1626;
+        --color-neutral-secondary: #0a1120;
+        --color-neutral-secondary-medium: #1a2438;
+        --color-neutral-secondary-strong: #263149;
+        --color-neutral-tertiary-soft: #141d30;
+        --color-neutral-tertiary: #1a2438;
+        --color-neutral-tertiary-medium: #26314a;
+        --color-neutral-quaternary: #333f5c;
+        --color-quaternary-medium: #45526f;
+        --color-gray: #5a6880;
+
+        --color-brand-softer: #10203f;
+        --color-brand-soft: #16305c;
+        --color-brand: #5b8cff;
+        --color-brand-medium: #3a6bf5;
+        --color-brand-strong: #8fb0ff;
+
+        --color-success-soft: #00301f;
+        --color-success: #2ee6a8;
+        --color-success-medium: #005438;
+        --color-success-strong: #5cf0be;
+        --color-danger-soft: #3d0011;
+        --color-danger: #ff6b85;
+        --color-danger-medium: #6b0a24;
+        --color-danger-strong: #ff9aaf;
+        --color-warning-soft: #3a1f00;
+        --color-warning: #ffa83d;
+        --color-warning-medium: #6b3d00;
+        --color-warning-strong: #ffc57a;
+
+        --color-disabled: #1a2438;
+
+        --color-heading: #f2f6ff;
+        --color-body: #a9b6ce;
+        --color-body-subtle: #8493ac;
+
+        --color-fg-brand-subtle: #3a6bf5;
+        --color-fg-brand: #8fb0ff;
+        --color-fg-brand-strong: #b9ccff;
+
+        --color-fg-success: #5cf0be;
+        --color-fg-success-strong: #2ee6a8;
+        --color-fg-danger: #ff9aaf;
+        --color-fg-danger-strong: #ff6b85;
+        --color-fg-warning-subtle: #ffa83d;
+        --color-fg-warning: #ffc57a;
+        --color-fg-disabled: #7c8aa3;
+
+        --color-fg-gold: #ffc94d;
+        --color-fg-aqua: #5be7ff;
+        --color-fg-violet: #b49cff;
+        --color-fg-magenta: #ff7db3;
+        --color-fg-lime: #c4ee7a;
+        --color-fg-ember: #ff9e6b;
+
+        --color-border-dark: #3d4a66;
+        --color-border-buffer: #070c16;
+        --color-border-buffer-medium: #151e31;
+        --color-border-buffer-strong: #1e2942;
+        --color-border-muted: #0e1626;
+        --color-border-light-subtle: #141d30;
+        --color-border-light: #1a2438;
+        --color-border-light-medium: #26314a;
+        --color-border-default-subtle: #121a2b;
+        --color-border-default: #263149;
+        --color-border-default-medium: #333f5c;
+        --color-border-default-strong: #5d6c8c;
+        --color-border-success-subtle: #005438;
+        --color-border-success: #2ee6a8;
+        --color-border-danger-subtle: #6b0a24;
+        --color-border-danger: #ff6b85;
+        --color-border-warning-subtle: #6b3d00;
+        --color-border-warning: #ffa83d;
+        --color-border-brand-subtle: #16305c;
+        --color-border-brand-light: #5b8cff;
+        --color-border-brand: #5b8cff;
+        --color-border-dark-subtle: #263149;
+        --color-border-gold: #ffc94d;
+        --color-border-violet: #b49cff;
+        --color-border-aqua: #5be7ff;
+    }
+}
+
+@theme inline {
+    /* --font-poppins / --font-gabarito are emitted by the laravel-vite-plugin `fonts`
+       option in vite.config.ts. That is the only place the families are named. */
+    --font-sans: var(--font-gabarito), ui-sans-serif, system-ui, sans-serif;
+    --font-heading: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
+
+    --color-neutral-primary-soft: var(--color-neutral-primary-soft);
+    --color-neutral-primary: var(--color-neutral-primary);
+    --color-neutral-primary-medium: var(--color-neutral-primary-medium);
+    --color-neutral-primary-strong: var(--color-neutral-primary-strong);
+    --color-neutral-secondary-soft: var(--color-neutral-secondary-soft);
+    --color-neutral-secondary: var(--color-neutral-secondary);
+    --color-neutral-secondary-medium: var(--color-neutral-secondary-medium);
+    --color-neutral-secondary-strong: var(--color-neutral-secondary-strong);
+    --color-neutral-tertiary-soft: var(--color-neutral-tertiary-soft);
+    --color-neutral-tertiary: var(--color-neutral-tertiary);
+    --color-neutral-tertiary-medium: var(--color-neutral-tertiary-medium);
+    --color-neutral-quaternary: var(--color-neutral-quaternary);
+    --color-quaternary-medium: var(--color-quaternary-medium);
+    --color-gray: var(--color-gray);
+
+    --color-brand-softer: var(--color-brand-softer);
+    --color-brand-soft: var(--color-brand-soft);
+    --color-brand: var(--color-brand);
+    --color-brand-medium: var(--color-brand-medium);
+    --color-brand-strong: var(--color-brand-strong);
+
+    --color-success-soft: var(--color-success-soft);
+    --color-success: var(--color-success);
+    --color-success-medium: var(--color-success-medium);
+    --color-success-strong: var(--color-success-strong);
+    --color-danger-soft: var(--color-danger-soft);
+    --color-danger: var(--color-danger);
+    --color-danger-medium: var(--color-danger-medium);
+    --color-danger-strong: var(--color-danger-strong);
+    --color-warning-soft: var(--color-warning-soft);
+    --color-warning: var(--color-warning);
+    --color-warning-medium: var(--color-warning-medium);
+    --color-warning-strong: var(--color-warning-strong);
+
+    --color-dark: var(--color-dark);
+    --color-dark-strong: var(--color-dark-strong);
+    --color-disabled: var(--color-disabled);
+
+    --color-aqua: var(--color-aqua);
+    --color-gold: var(--color-gold);
+    --color-violet: var(--color-violet);
+    --color-magenta: var(--color-magenta);
+    --color-lime: var(--color-lime);
+    --color-ember: var(--color-ember);
+
+    --color-heading: var(--color-heading);
+    --color-body: var(--color-body);
+    --color-body-subtle: var(--color-body-subtle);
+    --color-on-brand: var(--color-on-brand);
+    --color-on-brand-muted: var(--color-on-brand-muted);
+
+    --color-fg-brand-subtle: var(--color-fg-brand-subtle);
+    --color-fg-brand: var(--color-fg-brand);
+    --color-fg-brand-strong: var(--color-fg-brand-strong);
+
+    --color-fg-success: var(--color-fg-success);
+    --color-fg-success-strong: var(--color-fg-success-strong);
+    --color-fg-danger: var(--color-fg-danger);
+    --color-fg-danger-strong: var(--color-fg-danger-strong);
+    --color-fg-warning-subtle: var(--color-fg-warning-subtle);
+    --color-fg-warning: var(--color-fg-warning);
+    --color-fg-disabled: var(--color-fg-disabled);
+
+    --color-fg-gold: var(--color-fg-gold);
+    --color-fg-aqua: var(--color-fg-aqua);
+    --color-fg-violet: var(--color-fg-violet);
+    --color-fg-magenta: var(--color-fg-magenta);
+    --color-fg-lime: var(--color-fg-lime);
+    --color-fg-ember: var(--color-fg-ember);
+
+    --color-border-dark: var(--color-border-dark);
+    --color-border-buffer: var(--color-border-buffer);
+    --color-border-buffer-medium: var(--color-border-buffer-medium);
+    --color-border-buffer-strong: var(--color-border-buffer-strong);
+    --color-border-muted: var(--color-border-muted);
+    --color-border-light-subtle: var(--color-border-light-subtle);
+    --color-border-light: var(--color-border-light);
+    --color-border-light-medium: var(--color-border-light-medium);
+    --color-border-default-subtle: var(--color-border-default-subtle);
+    --color-border-default: var(--color-border-default);
+    --color-border-default-medium: var(--color-border-default-medium);
+    --color-border-default-strong: var(--color-border-default-strong);
+    --color-border-success-subtle: var(--color-border-success-subtle);
+    --color-border-success: var(--color-border-success);
+    --color-border-danger-subtle: var(--color-border-danger-subtle);
+    --color-border-danger: var(--color-border-danger);
+    --color-border-warning-subtle: var(--color-border-warning-subtle);
+    --color-border-warning: var(--color-border-warning);
+    --color-border-brand-subtle: var(--color-border-brand-subtle);
+    --color-border-brand-light: var(--color-border-brand-light);
+    --color-border-brand: var(--color-border-brand);
+    --color-border-dark-subtle: var(--color-border-dark-subtle);
+    --color-border-gold: var(--color-border-gold);
+    --color-border-violet: var(--color-border-violet);
+    --color-border-aqua: var(--color-border-aqua);
+}
