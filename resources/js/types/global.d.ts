@@ -12,6 +12,12 @@ declare module '@inertiajs/core' {
             name: string;
             auth: Auth;
             translations: Record<string, unknown>;
+            locale: string;
+            currency: string;
+            flash: {
+                status: string | null;
+                error: string | null;
+            };
             sidebarOpen: boolean;
             [key: string]: unknown;
         };

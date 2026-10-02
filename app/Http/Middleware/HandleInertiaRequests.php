@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\AuctionConfig;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -42,6 +43,15 @@ class HandleInertiaRequests extends Middleware
                 'user' => $request->user(),
             ],
             'translations' => fn (): array => (array) trans('ui'),
+            'locale' => app()->getLocale(),
+            'currency' => AuctionConfig::currency(),
+            'flash' => fn (): array => [
+                'status' => $request->session()->get('status'),
+                // `error` is flashed by the early-close, cancel, chat and payment
+                // routes. It used to be dropped here, so those redirects showed
+                // the user nothing at all.
+                'error' => $request->session()->get('error'),
+            ],
         ];
     }
 }

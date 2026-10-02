@@ -30,6 +30,7 @@ export default function Register() {
         <AuthLayout
             title={t('auth.register.title')}
             subtitle={t('auth.register.subtitle')}
+            illustration="/images/illustrations/mobile-log-in.svg"
         >
             <form onSubmit={submit} className="space-y-6">
                 <div>

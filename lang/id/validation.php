@@ -207,6 +207,10 @@ return [
         'description' => 'deskripsi',
         'avatar' => 'foto profil',
         'phone' => 'nomor telepon',
+        'starting_price' => 'harga awal',
+        'ends_at' => 'waktu berakhir',
+        'screenshots' => 'tangkapan layar',
+        'screenshots.*' => 'tangkapan layar',
     ],
 
 ];

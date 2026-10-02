@@ -197,6 +197,11 @@ return [
     |
     */
 
-    'attributes' => [],
+    'attributes' => [
+        'starting_price' => 'starting price',
+        'ends_at' => 'end time',
+        'screenshots' => 'screenshots',
+        'screenshots.*' => 'screenshots',
+    ],
 
 ];

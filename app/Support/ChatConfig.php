@@ -1,0 +1,111 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Support;
+
+/**
+ * Typed access to `config/chat.php`.
+ *
+ * @see AuctionConfig — the same pattern for `config/auction.php`
+ * @see RULES.md — "No hardcoding"
+ */
+final class ChatConfig
+{
+    public static function messageMaxLength(): int
+    {
+        return (int) config('chat.message_max_length');
+    }
+
+    public static function messagesPerPage(): int
+    {
+        return (int) config('chat.messages_per_page');
+    }
+
+    public static function roomsPerPage(): int
+    {
+        return (int) config('chat.rooms_per_page');
+    }
+
+    /**
+     * How many receipts the winner or the admin may attach per direction.
+     *
+     * A cap rather than a total: one direction is enough for most transactions,
+     * and a fixed ceiling stops a thread from being used as bulk file storage.
+     */
+    public static function maxProofsPerStep(): int
+    {
+        return (int) config('chat.proofs.max_per_step', 3);
+    }
+
+    public static function maxProofSizeKb(): int
+    {
+        return (int) config('chat.proofs.max_size_kb');
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public static function proofMimes(): array
+    {
+        $mimes = config('chat.proofs.mimes');
+
+        return is_array($mimes) ? array_values($mimes) : ['jpg', 'jpeg', 'png', 'webp'];
+    }
+
+    public static function proofsDisk(): string
+    {
+        return self::string('chat.proofs.disk', 'public');
+    }
+
+    public static function proofsDirectory(): string
+    {
+        return self::string('chat.proofs.directory', 'chat-proofs');
+    }
+
+    /**
+     * The static QRIS the admin receives every payment through, or null when
+     * none has been committed yet.
+     *
+     * Returns null rather than a placeholder path: a missing QR must hide the
+     * invoice action, never render an image no payment app can read.
+     */
+    public static function qrisImagePath(): ?string
+    {
+        $path = config('chat.qris.image_path');
+
+        return is_string($path) && $path !== '' ? $path : null;
+    }
+
+    /**
+     * Whether an invoice can be sent at all.
+     */
+    public static function qrisConfigured(): bool
+    {
+        return self::qrisImagePath() !== null;
+    }
+
+    public static function qrisAccountName(): ?string
+    {
+        return self::nullableString('chat.qris.account_name');
+    }
+
+    public static function qrisAccountNumber(): ?string
+    {
+        return self::nullableString('chat.qris.account_number');
+    }
+
+    private static function string(string $key, string $fallback): string
+    {
+        $value = config($key);
+
+        return is_string($value) && $value !== '' ? $value : $fallback;
+    }
+
+    private static function nullableString(string $key): ?string
+    {
+        $value = config($key);
+
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+}

@@ -23,9 +23,14 @@ return new class extends Migration
             $table->foreignId('seller_id')->index()->constrained('users')->cascadeOnDelete();
             $table->string('title');
             $table->text('description');
+            $table->unsignedBigInteger('starting_price');
+            $table->unsignedBigInteger('current_price')->nullable();
             $table->string('status')->default(AuctionStatus::Draft->value);
+            $table->timestamp('starts_at')->nullable();
+            $table->timestamp('ends_at')->nullable();
             $table->timestamps();
 
+            $table->index(['status', 'ends_at']);
             $table->fullText($columns)->language(SearchConfig::language());
         });
     }

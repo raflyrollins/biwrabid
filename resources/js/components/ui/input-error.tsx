@@ -4,12 +4,12 @@ type InputErrorProps = {
 };
 
 export function InputError({ message, id }: InputErrorProps) {
-    if (!message) {
-        return null;
-    }
-
     return (
-        <p id={id} className="mt-2 text-sm text-fg-danger">
+        <p
+            id={id}
+            aria-live="polite"
+            className="mt-2 min-h-5 text-sm text-fg-danger"
+        >
             {message}
         </p>
     );

@@ -309,3 +309,114 @@
     --color-border-violet: var(--color-border-violet);
     --color-border-aqua: var(--color-border-aqua);
 }
+
+/*
+|--------------------------------------------------------------------------
+| Modal transitions
+|--------------------------------------------------------------------------
+|
+| The confirmation and result dialogs animate in and out with keyframes rather
+| than transitions, because a transition needs the element to already be in the
+| DOM. The dialogs stay mounted for the length of the exit animation before
+| `onCancel` fires, which is what makes the close visible instead of instant.
+|
+*/
+
+@keyframes overlay-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes overlay-out {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
+@keyframes dialog-in {
+    from {
+        opacity: 0;
+        transform: translateY(16px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes dialog-out {
+    from {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(10px) scale(0.97);
+    }
+}
+
+@keyframes illustration-in {
+    from {
+        opacity: 0;
+        transform: translateY(8px) scale(0.94);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes illustration-float {
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-6px);
+    }
+}
+
+@layer components {
+    .animate-overlay-in {
+        animation: overlay-in 180ms ease-out both;
+    }
+
+    .animate-overlay-out {
+        animation: overlay-out 150ms ease-in both;
+    }
+
+    .animate-dialog-in {
+        animation: dialog-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    .animate-dialog-out {
+        animation: dialog-out 150ms ease-in both;
+    }
+
+    .animate-illustration-in {
+        animation:
+            illustration-in 340ms cubic-bezier(0.16, 1, 0.3, 1) both,
+            illustration-float 4s ease-in-out 400ms infinite;
+    }
+}
+
+/*
+Respect the OS-level motion preference: the dialogs still appear and disappear,
+they just stop moving.
+*/
+@media (prefers-reduced-motion: reduce) {
+    .animate-overlay-in,
+    .animate-overlay-out,
+    .animate-dialog-in,
+    .animate-dialog-out,
+    .animate-illustration-in {
+        animation: none;
+    }
+}

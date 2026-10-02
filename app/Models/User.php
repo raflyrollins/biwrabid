@@ -8,6 +8,7 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
@@ -34,6 +35,19 @@ class User extends Authenticatable
     use HasFactory, HasUuidRouteKey, Notifiable;
 
     /**
+     * Laravel's primitive casts hand back `null` for an attribute that is absent
+     * from the model rather than casting it, so a freshly created user would
+     * report `is_admin === null`. Declaring the default keeps it a real boolean
+     * everywhere, which the admin middleware, the chat policy and the Inertia
+     * props all rely on.
+     *
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'is_admin' => false,
+    ];
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
@@ -45,5 +59,15 @@ class User extends Authenticatable
             'password' => 'hashed',
             'is_admin' => 'boolean',
         ];
+    }
+
+    /**
+     * The auctions this user has listed.
+     *
+     * @return HasMany<Auction, $this>
+     */
+    public function auctions(): HasMany
+    {
+        return $this->hasMany(Auction::class, 'seller_id');
     }
 }
