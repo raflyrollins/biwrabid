@@ -312,6 +312,92 @@
 
 /*
 |--------------------------------------------------------------------------
+| Slim scrollbar
+|--------------------------------------------------------------------------
+|
+| The chat thread and the room list are the only two scrolling regions in the
+| app, and both are long. Browsers ship an oversized grey scrollbar that no
+| other element on the page matches, so it reads as a default the design system
+| missed rather than as part of the screen.
+|
+| Firefox takes `scrollbar-width` / `scrollbar-color`; Chromium and Safari take
+| the `::-webkit-scrollbar` pseudo-elements. Both are written here because
+| neither engine understands the other's, and half a scrollbar is worse than the
+| browser default.
+|
+| The thumb is transparent-padded with `background-clip: padding-box` so it
+| draws a 4px pill inside a 10px gutter: it does not sit on top of a bubble, and
+| it keeps the rounded ends the default cannot have.
+|
+*/
+
+@layer components {
+    .scroll-slim {
+        scrollbar-width: thin;
+        scrollbar-color: var(--color-neutral-quaternary) transparent;
+    }
+
+    .scroll-slim:hover {
+        scrollbar-color: var(--color-brand) transparent;
+    }
+
+    .scroll-slim::-webkit-scrollbar {
+        width: 0.625rem;
+    }
+
+    .scroll-slim::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .scroll-slim::-webkit-scrollbar-thumb {
+        background-color: var(--color-neutral-quaternary);
+        background-clip: padding-box;
+        border: 0.1875rem solid transparent;
+        border-radius: 9999px;
+    }
+
+    .scroll-slim:hover::-webkit-scrollbar-thumb {
+        background-color: var(--color-brand);
+    }
+}
+
+/*
+|--------------------------------------------------------------------------
+| Hidden scrollbar
+|--------------------------------------------------------------------------
+|
+| For the chat composer. A textarea that grows past its cap has to scroll, and
+| the browser's scrollbar draws a grey stripe plus a pair of up/down arrows
+| inside a rounded input that was designed without either — on a field holding
+| one paragraph of text, those arrows are most of what is on screen.
+|
+| The scrollbar is hidden rather than the scrolling removed: `.no-scrollbar` only
+| takes away the scrollbar, so the content is still reachable with the keyboard
+| (the field takes focus and the caret moves) and with the wheel. Removing
+| `overflow` instead would trap the tail of a long message where nobody could
+| reach it.
+|
+| Firefox takes `scrollbar-width`; Chromium and Safari take the
+| `::-webkit-scrollbar` pseudo-elements. Neither engine understands the other, so
+| both are written here.
+|
+*/
+
+@layer components {
+    .no-scrollbar {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+
+    .no-scrollbar::-webkit-scrollbar {
+        display: none;
+        width: 0;
+        height: 0;
+    }
+}
+
+/*
+|--------------------------------------------------------------------------
 | Modal transitions
 |--------------------------------------------------------------------------
 |

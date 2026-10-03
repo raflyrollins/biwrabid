@@ -32,6 +32,9 @@ final class ChatPresenter
      */
     public static function room(ChatRoom $room, User $viewer): array
     {
+        // Only what a preview row draws. Nothing here needs the message's files,
+        // its proof paths or its read state, and asking for them would put two
+        // queries per row on the room list — see `messagePreview()`.
         $room->loadMissing(['auction', 'initiator', 'latestMessage.sender']);
         $latest = $room->latestMessage;
         $auction = $room->auction;
@@ -53,36 +56,48 @@ final class ChatPresenter
                 'status' => $auction->status->value,
                 'image_url' => $auction->screenshots()->first()?->url(),
             ],
-            'latest_message' => $latest === null ? null : self::message($latest),
+            'latest_message' => $latest === null ? null : self::messagePreview($latest),
         ];
     }
 
     /**
-     * The room shape for the thread page, which additionally carries the payment
-     * panel.
+     * The one-line shape a room list row draws.
      *
-     * Split from `room()` on purpose. `payment()` reads `highestBid()` and scans
-     * the room's messages, so putting it in the list shape would make the
-     * inbox two extra queries per row. The panel only ever renders on one thread
-     * at a time, so it is paid for once.
+     * Deliberately not `message()`. A preview is not a message: it carries no
+     * delivery state and no files, because a list row renders neither. Sending
+     * the full shape would mean eager-loading every receipt on the page and
+     * resolving each room's participant list — one message's worth of queries per
+     * row, on the room list, to fill in fields no row reads. A tick belongs to a
+     * thread that is open, where `message()` decides it.
      *
      * @return array<string, mixed>
      */
-    public static function thread(ChatRoom $room, User $viewer): array
+    public static function messagePreview(ChatMessage $message): array
     {
+        $message->loadMissing('sender');
+
         return [
-            ...self::room($room, $viewer),
-            // Null for support and credential rooms: money only moves where the
-            // admin can see it.
-            'payment' => self::payment($room, $viewer),
+            'id' => $message->id,
+            'body' => $message->body,
+            'kind' => $message->kind->value,
+            'sender_name' => $message->sender?->name,
+            'created_at' => $message->created_at?->toIso8601String(),
         ];
     }
 
     /**
      * The message shape used by the thread view and the real-time payload.
      *
-     * `kind` is what the thread renders by rather than by sniffing the body, and
-     * `proof_url` is null unless the kind actually carries a file.
+     * `kind` is what the thread renders by rather than by sniffing the body.
+     * `proof_url` and `qris_url` are null unless the kind actually carries that
+     * file, so ordinary chatter can never surface a path. `attachments` are the
+     * files a member attached to a plain message, resolved to their URLs here so
+     * the client never builds a path of its own.
+     *
+     * `sender_id` is what the client matches its own messages against. `role` is
+     * not a substitute: two people in the same room can hold the same role, and
+     * in a support thread the admin and the member are the only two parties, so a
+     * role comparison would put half the thread on the wrong side.
      *
      * @return array<string, mixed>
      */
@@ -96,21 +111,38 @@ final class ChatPresenter
             'kind' => $message->kind->value,
             'amount' => $message->amount,
             'proof_url' => $message->proofUrl(),
+            'qris_url' => $message->qrisUrl(),
+            'attachments' => $message->attachmentList(),
+            'sender_id' => $message->user_id,
             'sender_name' => $message->sender?->name,
             'sender_role' => $message->senderRole()->value,
             'created_at' => $message->created_at?->toIso8601String(),
+            // The double tick. False until every other participant has a receipt,
+            // which is decided on the server because it depends on who is in the
+            // room — see `ChatMessage::isReadByAll()`.
+            'read_by_all' => $message->isReadByAll(),
         ];
     }
 
     /**
      * @param  iterable<int, ChatMessage>  $messages
+     * @param  ChatRoom|null  $room  the room every message came from. Passed in
+     *                               rather than read off each message because
+     *                               `isReadByAll()` needs the room's participant
+     *                               list, and one instance can then be shared by
+     *                               the whole page instead of being re-queried per
+     *                               message.
      * @return array<int, array<string, mixed>>
      */
-    public static function messages(iterable $messages): array
+    public static function messages(iterable $messages, ?ChatRoom $room = null): array
     {
         $presented = [];
 
         foreach ($messages as $message) {
+            if ($room !== null) {
+                $message->setRelation('room', $room);
+            }
+
             $presented[] = self::message($message);
         }
 
@@ -120,6 +152,13 @@ final class ChatPresenter
     /**
      * The payment panel for an auction group thread, or null for every other
      * room kind.
+     *
+     * Rendered on the auction page rather than inside the thread. The steps are
+     * auction state, not conversation, and the panel needs the room uuid only
+     * because the payment routes are bound to one — which the caller pairs it
+     * with. Keeping it out of the room shape means the thread only ever renders
+     * the transcript, so there is no second copy of these buttons to drift from
+     * the endpoints that enforce them.
      *
      * `actions` is the set of steps this viewer may take *right now*, derived
      * from their role and the payment's current status. Sending that from the
@@ -163,11 +202,7 @@ final class ChatPresenter
             'amount' => $invoiced ?? $auction->paymentAmount(),
             'bid_amount' => $bidAmount,
             'admin_fee' => AuctionConfig::adminFeeFlat(),
-            'qris' => ChatConfig::qrisConfigured() ? [
-                'image_url' => ChatConfig::qrisImagePath(),
-                'account_name' => ChatConfig::qrisAccountName(),
-                'account_number' => ChatConfig::qrisAccountNumber(),
-            ] : null,
+            'qris' => self::sentQrIs($room, $status),
             // The winner's receipt, which is what the admin vouches against before
             // confirming their own account. Deliberately not the transfer
             // receipt: at the point this is read, that one cannot exist yet.
@@ -175,6 +210,40 @@ final class ChatPresenter
                 ->where('kind', ChatMessageKind::PaymentProof->value)
                 ->exists(),
             'actions' => self::paymentActions($status, $role, $auction, $room),
+        ];
+    }
+
+    /**
+     * The QRIS on the invoice, or null before one has been sent.
+     *
+     * Read off the invoice message rather than from config, so the panel shows
+     * the same code the winner was actually asked to pay — which is also what an
+     * in-flight payment keeps pointing at after the platform's account changes.
+     *
+     * @return array{image_url: string, account_name: string|null, account_number: string|null}|null
+     */
+    private static function sentQrIs(ChatRoom $room, ?PaymentStatus $status): ?array
+    {
+        if ($status === null) {
+            return null;
+        }
+
+        /** @var ChatMessage|null $invoice */
+        $invoice = $room->messages()
+            ->where('kind', ChatMessageKind::PaymentRequest->value)
+            ->latest('id')
+            ->first();
+
+        $url = $invoice?->qrisUrl();
+
+        if ($url === null) {
+            return null;
+        }
+
+        return [
+            'image_url' => $url,
+            'account_name' => ChatConfig::qrisAccountName(),
+            'account_number' => ChatConfig::qrisAccountNumber(),
         ];
     }
 
@@ -207,11 +276,9 @@ final class ChatPresenter
         // No invoice yet: only the admin may raise one, and only for an auction
         // that has actually ended with a winner to charge.
         if ($status === null) {
-            return $role === ChatParticipantRole::Admin
-                && ChatConfig::qrisConfigured()
-                && $auction->isEnded()
-                ? ['request']
-                : [];
+            return $role === ChatParticipantRole::Admin && $auction->isEnded()
+            ? ['request']
+            : [];
         }
 
         return match ($status) {

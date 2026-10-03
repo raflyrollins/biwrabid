@@ -296,14 +296,11 @@ return [
     'chat' => [
         'index' => [
             'title' => 'Chat',
-            'heading' => 'Percakapan Anda',
-            'subtitle' => 'Ngobrol langsung dengan penjual atau admin kami.',
             'start_support' => 'Chat dengan Admin',
             'support_hint' => 'Admin memegang rekening pembayaran dan membantu verifikasi transfer.',
             'empty_title' => 'Belum ada percakapan',
             'empty_body' => 'Mulai chat dengan admin untuk pembayaran, atau buka chat privat dengan penjual setelah Anda menang.',
-            'admin_inbox_title' => 'Kotak Masuk Admin',
-            'admin_inbox_body' => 'Semua percakapan yang sedang berjalan.',
+            'list_label' => 'Daftar percakapan',
         ],
 
         'show' => [
@@ -318,9 +315,32 @@ return [
             'newer' => 'Pesan terbaru',
             'empty_title' => 'Belum ada pesan',
             'empty_body' => 'Mulai percakapan di bawah ini.',
+            'back' => 'Kembali ke percakapan',
+            'attach' => 'Lampirkan foto atau PDF',
+            'remove' => 'Hapus lampiran',
             'placeholder' => 'Tulis pesan…',
             'send' => 'Kirim',
             'sending' => 'Mengirim…',
+            /*
+            | The three states a sent message moves through. They are words rather
+            | than glyphs because the bubble renders an icon: this is what a screen
+            | reader announces in place of it.
+            */
+            'tick_pending' => 'Sedang dikirim',
+            'tick_sent' => 'Terkirim',
+            'tick_read' => 'Dibaca semua',
+            'failed' => 'Pesan gagal dikirim',
+            'retry' => 'Coba kirim lagi',
+            'select_title' => 'Pilih percakapan',
+            'select_body' => 'Pilih percakapan di daftar untuk membaca pesan dan membalas.',
+        ],
+
+        /*
+        | The support thread before it exists: the member has opened the composer
+        | but not written yet, and nothing has been created server-side.
+        */
+        'draft' => [
+            'intro' => 'Tulis pesan pertama Anda, percakapan dengan admin akan dibuat dari pesan ini.',
         ],
 
         'roles' => [
@@ -346,6 +366,8 @@ return [
 
         'fields' => [
             'body' => 'pesan',
+            'attachments' => 'lampiran',
+            'attachment' => 'lampiran',
         ],
 
         /*
@@ -379,14 +401,14 @@ return [
             'waiting' => 'Menunggu',
             'you' => 'Anda',
             'actions' => [
-                'request' => 'Kirim QRIS & nominal',
+                'request' => 'Kirim invoice',
                 'proof' => 'Unggah bukti transfer',
                 'received' => 'Uang sudah masuk',
                 'transfer' => 'Unggah bukti transfer ke penjual',
                 'confirm' => 'Saya sudah menerima dana',
             ],
             'hints' => [
-                'request' => 'Kirim nominal yang harus dibayar pemenang beserta QRIS.',
+                'request' => 'Unggah gambar QRIS rekening tujuan. Nominal sudah dihitung otomatis dari harga menang + biaya admin.',
                 'proof' => 'Unggah screenshot bukti transfer ke rekening admin.',
                 'received' => 'Cek rekening admin dulu sebelum mengonfirmasi.',
                 'transfer' => 'Setelah dana masuk, transfer ke penjual lalu unggah buktinya di sini.',
@@ -394,6 +416,7 @@ return [
             ],
             'no_proof_yet' => 'Pemenang belum mengunggah bukti transfer.',
             'choose_proof' => 'Pilih screenshot bukti transfer',
+            'choose_qris' => 'Pilih gambar QRIS',
             'uploading' => 'Mengunggah…',
             'dialog' => [
                 'confirm' => 'Lanjutkan',
@@ -418,9 +441,13 @@ return [
             ],
             'fields' => [
                 'proof' => 'bukti transfer',
+                'qris' => 'gambar QRIS',
             ],
             'errors' => [
                 'proof_required' => 'Bukti transfer wajib diunggah.',
+                'qris_required' => 'Gambar QRIS wajib diunggah.',
+                'qris_image' => 'QRIS harus berupa gambar (JPG, PNG atau WebP).',
+                'qris_size' => 'Ukuran gambar QRIS maksimal :max KB.',
                 'proof_image' => 'Bukti transfer harus berupa gambar (JPG, PNG atau WebP).',
                 'proof_size' => 'Ukuran bukti transfer maksimal :max KB.',
                 'unavailable' => 'Langkah pembayaran ini tidak tersedia saat ini.',
@@ -430,6 +457,9 @@ return [
         'errors' => [
             'body_required' => 'Pesan tidak boleh kosong.',
             'body_too_long' => 'Pesan maksimal :max karakter.',
+            'attachments_too_many' => 'Maksimal :max lampiran per pesan.',
+            'attachment_type' => 'Hanya gambar (JPG, PNG, WebP) dan PDF yang bisa dilampirkan.',
+            'attachment_too_large' => 'Setiap lampiran maksimal :max KB.',
             'no_winner' => 'Lelang ini belum memiliki pemenang.',
             'no_chat' => 'Anda tidak punya akses ke percakapan ini.',
         ],

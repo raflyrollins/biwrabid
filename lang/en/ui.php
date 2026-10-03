@@ -296,14 +296,11 @@ return [
     'chat' => [
         'index' => [
             'title' => 'Chat',
-            'heading' => 'Your conversations',
-            'subtitle' => 'Talk directly to a seller or to our admin.',
             'start_support' => 'Chat with Admin',
             'support_hint' => 'The admin holds the payment account and verifies transfers.',
             'empty_title' => 'No conversations yet',
             'empty_body' => 'Start a chat with the admin for payments, or open the private seller chat once you have won.',
-            'admin_inbox_title' => 'Admin inbox',
-            'admin_inbox_body' => 'Every conversation currently running.',
+            'list_label' => 'Conversation list',
         ],
 
         'show' => [
@@ -318,9 +315,32 @@ return [
             'newer' => 'Newest messages',
             'empty_title' => 'No messages yet',
             'empty_body' => 'Start the conversation below.',
+            'back' => 'Back to conversations',
+            'attach' => 'Attach an image or a PDF',
+            'remove' => 'Remove attachment',
             'placeholder' => 'Write a message…',
             'send' => 'Send',
             'sending' => 'Sending…',
+            /*
+            | The three states a sent message moves through. They are words rather
+            | than glyphs because the bubble renders an icon: this is what a screen
+            | reader announces in place of it.
+            */
+            'tick_pending' => 'Sending',
+            'tick_sent' => 'Sent',
+            'tick_read' => 'Read by everyone',
+            'failed' => 'Message failed to send',
+            'retry' => 'Try sending again',
+            'select_title' => 'Pick a conversation',
+            'select_body' => 'Choose a conversation from the list to read and reply.',
+        ],
+
+        /*
+        | The support thread before it exists: the member has opened the composer
+        | but not written yet, and nothing has been created server-side.
+        */
+        'draft' => [
+            'intro' => 'Write your first message and the conversation with the admin is created from it.',
         ],
 
         'roles' => [
@@ -346,6 +366,8 @@ return [
 
         'fields' => [
             'body' => 'message',
+            'attachments' => 'attachments',
+            'attachment' => 'attachment',
         ],
 
         'payment' => [
@@ -388,6 +410,7 @@ return [
             ],
             'no_proof_yet' => 'The winner has not uploaded a transfer receipt yet.',
             'choose_proof' => 'Choose a transfer receipt screenshot',
+            'choose_qris' => 'Choose a QRIS image',
             'uploading' => 'Uploading…',
             'dialog' => [
                 'confirm' => 'Continue',
@@ -424,6 +447,9 @@ return [
         'errors' => [
             'body_required' => 'The message cannot be empty.',
             'body_too_long' => 'The message may be at most :max characters.',
+            'attachments_too_many' => 'You can attach at most :max files.',
+            'attachment_type' => 'Only images (JPG, PNG, WebP) and PDF files can be attached.',
+            'attachment_too_large' => 'Each attachment may be at most :max KB.',
             'no_winner' => 'This auction has no winner yet.',
             'no_chat' => 'You do not have access to this conversation.',
         ],

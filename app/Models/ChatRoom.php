@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
@@ -38,6 +39,13 @@ class ChatRoom extends Model
 {
     /** @use HasFactory<ChatRoomFactory> */
     use HasFactory, HasUuidRouteKey;
+
+    /**
+     * Per-instance memo for `participantIds()`.
+     *
+     * @var array<int, int>|null
+     */
+    private ?array $participant_ids = null;
 
     /**
      * Get the attributes that should be cast.
@@ -79,6 +87,24 @@ class ChatRoom extends Model
     public function messages(): HasMany
     {
         return $this->hasMany(ChatMessage::class);
+    }
+
+    /**
+     * Every read receipt written against this room's messages.
+     *
+     * Reached through `chat_message_id` rather than carrying a `chat_room_id` of
+     * its own, so a receipt can never disagree with the message it points at.
+     *
+     * @return HasManyThrough<ChatMessageRead, ChatMessage, $this>
+     */
+    public function reads(): HasManyThrough
+    {
+        return $this->hasManyThrough(
+            ChatMessageRead::class,
+            ChatMessage::class,
+            'chat_room_id',
+            'chat_message_id',
+        );
     }
 
     public function isSupport(): bool
@@ -147,6 +173,75 @@ class ChatRoom extends Model
     public function canAccess(User $user): bool
     {
         return $this->roleFor($user) !== null;
+    }
+
+    /**
+     * Everyone who can take part in this room, as user ids.
+     *
+     * The read receipts need this to decide when a message has been seen by
+     * *everyone*: a message is only fully read once every other participant has
+     * a receipt, and "every other" cannot be counted from the sender alone.
+     *
+     * Built from the same derived membership as `roleFor()` rather than a stored
+     * participant list, so the answer cannot disagree with who is actually in the
+     * room — including the admin, who is a participant in two of the three kinds
+     * and deliberately not in the credential one. Admins are enumerated here
+     * because, unlike the seller and the winner, they are not derivable from the
+     * auction; the result is memoised because a thread renders many messages and
+     * every one of them asks the same question.
+     *
+     * @return array<int, int>
+     */
+    public function participantIds(): array
+    {
+        if ($this->participant_ids !== null) {
+            return $this->participant_ids;
+        }
+
+        $ids = [];
+
+        if ($this->isSupport()) {
+            $ids[] = $this->initiator_id;
+        } else {
+            $auction = $this->auction;
+            $ids[] = $auction?->seller_id;
+            $ids[] = $auction?->winner_id;
+        }
+
+        if ($this->admitsAdmin()) {
+            $admins = User::query()
+                ->where('is_admin', true)
+                ->pluck('id')
+                ->all();
+
+            foreach ($admins as $admin) {
+                $ids[] = (int) $admin;
+            }
+        }
+
+        return $this->participant_ids = array_values(array_unique(array_filter($ids)));
+    }
+
+    /**
+     * The participants whose read receipts a message has to collect before it
+     * shows a double tick — everyone in the room except whoever sent it.
+     *
+     * Excludes the sender because they have, by definition, read their own
+     * message: waiting for their receipt would leave the double tick permanently
+     * out of reach. A deleted account's messages have nobody to wait for, so they
+     * count as read by all.
+     *
+     * @return array<int, int>
+     */
+    public function expectedReaderIds(?User $sender = null): array
+    {
+        $ids = $this->participantIds();
+
+        if ($sender === null) {
+            return $ids;
+        }
+
+        return array_values(array_diff($ids, [$sender->id]));
     }
 
     /**

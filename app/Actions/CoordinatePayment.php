@@ -16,6 +16,7 @@ use App\Models\ChatMessage;
 use App\Models\ChatRoom;
 use App\Models\User;
 use App\Support\ChatConfig;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -40,31 +41,26 @@ use Illuminate\Support\Facades\Storage;
  * other all safe: the payment row is re-read under a lock and only the exact
  * expected transition is applied, so the loser of the race simply does nothing.
  *
- * Nothing here authorises the *user* â€” that is `ChatRoom::roleFor()`'s job at
+ * Nothing here authorises the *user* — that is `ChatRoom::roleFor()`'s job at
  * the edge. The role is re-checked anyway, because an action that moves real
  * money should not depend on its caller having checked.
  */
 final class CoordinatePayment
 {
     /**
-     * Step 1: the admin posts the static QRIS and the amount owed.
+     * Step 1: the admin uploads their QRIS and the amount owed is worked out.
      *
-     * The amount is snapshotted from `Auction::paymentAmount()` â€” the highest
-     * bid plus the flat admin fee â€” so raising the fee later cannot re-price an
-     * invoice the winner is already paying.
+     * The QRIS is the admin's own file rather than one committed to the repository,
+     * because it is their receiving account and their call which account to use. The
+     * amount is never typed in: it is snapshotted from `Auction::paymentAmount()` —
+     * the highest bid plus the flat admin fee — so raising the fee later cannot
+     * re-price an invoice the winner is already paying.
      */
-    public function sendRequest(ChatRoom $room, User $admin): ?ChatMessage
+    public function sendRequest(ChatRoom $room, User $admin, UploadedFile $qr): ?ChatMessage
     {
         $auction = $this->groupAuction($room);
 
         if ($auction === null || ! $this->actorIs($room, $admin, ChatParticipantRole::Admin)) {
-            return null;
-        }
-
-        // No receiving account configured yet. A QR code cannot be generated
-        // locally that a payment app would accept, and pointing a buyer at a
-        // placeholder would be worse than not offering the action at all.
-        if (! ChatConfig::qrisConfigured()) {
             return null;
         }
 
@@ -74,36 +70,86 @@ final class CoordinatePayment
             return null;
         }
 
-        $message = DB::transaction(function () use ($auction, $room, $admin, $amount): ?ChatMessage {
-            // One invoice per auction, forever. `updateOrCreate` was the wrong
-            // tool here: re-sending must not re-price an invoice the winner is
-            // already paying, and it must not drag a payment that has moved on
-            // (or completed) back to `requested`. The original request message
-            // and its QRIS stay in the transcript, so nothing needs re-sending.
-            if (AuctionPayment::query()->where('auction_id', $auction->id)->exists()) {
-                return null;
-            }
+        $path = $this->store($qr);
 
-            AuctionPayment::query()->create([
-                'auction_id' => $auction->id,
-                'amount' => $amount,
-                'status' => PaymentStatus::Requested,
-            ]);
+        if ($path === null) {
+            return null;
+        }
 
-            $this->touch($room);
+        try {
+            $message = DB::transaction(function () use ($auction, $room, $admin, $amount, $path): ?ChatMessage {
+                // One invoice per auction, forever. `updateOrCreate` was the wrong
+                // tool here: re-sending must not re-price an invoice the winner is
+                // already paying, and it must not drag a payment that has moved on
+                // (or completed) back to `requested`. The original request message
+                // and its QRIS stay in the transcript, so nothing needs re-sending.
+                if (AuctionPayment::query()->where('auction_id', $auction->id)->exists()) {
+                    return null;
+                }
 
-            return $this->post(
-                $room,
-                $admin,
-                ChatMessageKind::PaymentRequest,
-                body: __('ui.chat.payment.messages.request'),
-                amount: $amount,
-            );
-        });
+                AuctionPayment::query()->create([
+                    'auction_id' => $auction->id,
+                    'amount' => $amount,
+                    'status' => PaymentStatus::Requested,
+                ]);
+
+                $this->touch($room);
+
+                return $this->post(
+                    $room,
+                    $admin,
+                    ChatMessageKind::PaymentRequest,
+                    body: __('ui.chat.payment.messages.request'),
+                    amount: $amount,
+                    qrisPath: $path,
+                );
+            });
+        } catch (\Throwable $e) {
+            $this->discard($path);
+
+            throw $e;
+        }
+
+        // The upload is written before the transaction opens, so a refused
+        // invoice has to clean up after itself.
+        if ($message === null) {
+            $this->discard($path);
+
+            return null;
+        }
 
         $this->broadcast($message);
 
         return $message;
+    }
+
+    /**
+     * Store an upload, or null when the disk refused it.
+     *
+     * `store()` reports failure by returning false, and writing that into a path
+     * column would produce a message pointing at nothing.
+     */
+    private function store(UploadedFile $file): ?string
+    {
+        $path = $file->store(ChatConfig::proofsDirectory(), ChatConfig::proofsDisk());
+
+        return $path === false ? null : $path;
+    }
+
+    /**
+     * Undo a stored upload.
+     *
+     * Every upload is written before its transaction opens, so the path has to be
+     * cleaned up on both a null result and a throw. A row can then never point at
+     * a file that is not there, and a refused step leaves nothing behind.
+     */
+    private function discard(?string $path): void
+    {
+        if ($path === null) {
+            return;
+        }
+
+        Storage::disk(ChatConfig::proofsDisk())->delete($path);
     }
 
     /**
@@ -243,7 +289,7 @@ final class CoordinatePayment
      * The shared body of both "upload a receipt" steps.
      *
      * Identical except for who may do it, which status it waits on, whether it
-     * advances that status, and which message kind it posts â€” so the part that
+     * advances that status, and which message kind it posts — so the part that
      * is easy to get wrong (store, lock, verify, roll back the file) is written
      * once.
      *
@@ -265,20 +311,16 @@ final class CoordinatePayment
             return null;
         }
 
-        $disk = Storage::disk(ChatConfig::proofsDisk());
-        $path = $file->store(ChatConfig::proofsDirectory(), ChatConfig::proofsDisk());
+        $path = $this->store($file);
 
-        // `store()` reports failure by returning false. Writing that into
-        // `proof_path` would produce a message pointing at nothing, so the step
-        // is refused outright â€” the file was never accepted.
-        if ($path === false) {
+        if ($path === null) {
             return null;
         }
 
         // A retry is a normal part of a transfer receipt, but it is still a file
         // upload, so it is bounded rather than unlimited.
         if ($room->messages()->where('kind', $kind->value)->count() >= ChatConfig::maxProofsPerStep()) {
-            $disk->delete($path);
+            $this->discard($path);
 
             return null;
         }
@@ -300,13 +342,13 @@ final class CoordinatePayment
                 return $this->post($room, $actor, $kind, body: $body, proofPath: $path);
             });
         } catch (\Throwable $e) {
-            $disk->delete($path);
+            $this->discard($path);
 
             throw $e;
         }
 
         if ($message === null) {
-            $disk->delete($path);
+            $this->discard($path);
 
             return null;
         }
@@ -369,6 +411,7 @@ final class CoordinatePayment
         string $body,
         ?int $amount = null,
         ?string $proofPath = null,
+        ?string $qrisPath = null,
     ): ChatMessage {
         /** @var ChatMessage $message */
         $message = $room->messages()->create([
@@ -377,9 +420,15 @@ final class CoordinatePayment
             'kind' => $kind,
             'amount' => $amount,
             'proof_path' => $proofPath,
+            'qris_path' => $qrisPath,
         ]);
 
         $message->setRelation('room', $room);
+
+        // A payment message is broadcast the moment it is written and nobody has
+        // read it yet, so the double tick is false. Setting the relation answers
+        // `isReadByAll()` without a query per step.
+        $message->setRelation('reads', new Collection);
 
         return $message;
     }
@@ -395,7 +444,7 @@ final class CoordinatePayment
     private function broadcast(?ChatMessage $message): void
     {
         // Nullable because a step that loses its race, or finds the room in the
-        // wrong state, produces no message â€” and must not broadcast anything.
+        // wrong state, produces no message — and must not broadcast anything.
         if ($message === null) {
             return;
         }

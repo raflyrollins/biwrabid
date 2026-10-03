@@ -64,27 +64,49 @@ final class ChatConfig
     }
 
     /**
-     * The static QRIS the admin receives every payment through, or null when
-     * none has been committed yet.
+     * How many files one ordinary message may carry.
      *
-     * Returns null rather than a placeholder path: a missing QR must hide the
-     * invoice action, never render an image no payment app can read.
+     * A per-message cap rather than a total: several people trading screenshots
+     * in one reply is the normal case here, while an unbounded thread is just
+     * bulk file storage.
      */
-    public static function qrisImagePath(): ?string
+    public static function maxAttachmentsPerMessage(): int
     {
-        $path = config('chat.qris.image_path');
+        return (int) config('chat.attachments.max_per_message', 6);
+    }
 
-        return is_string($path) && $path !== '' ? $path : null;
+    public static function maxAttachmentSizeKb(): int
+    {
+        return (int) config('chat.attachments.max_size_kb');
     }
 
     /**
-     * Whether an invoice can be sent at all.
+     * @return array<int, string>
      */
-    public static function qrisConfigured(): bool
+    public static function attachmentMimes(): array
     {
-        return self::qrisImagePath() !== null;
+        $mimes = config('chat.attachments.mimes');
+
+        return is_array($mimes) ? array_values($mimes) : ['jpg', 'jpeg', 'png', 'webp', 'pdf'];
     }
 
+    public static function attachmentsDisk(): string
+    {
+        return self::string('chat.attachments.disk', 'public');
+    }
+
+    public static function attachmentsDirectory(): string
+    {
+        return self::string('chat.attachments.directory', 'chat-attachments');
+    }
+
+    /**
+     * The account name the admin's receiving account is registered under.
+     *
+     * Optional, and only a label beside the QRIS image the admin uploaded — the
+     * image is what a payment app actually reads, so this never gates the
+     * invoice action.
+     */
     public static function qrisAccountName(): ?string
     {
         return self::nullableString('chat.qris.account_name');

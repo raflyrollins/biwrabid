@@ -181,6 +181,21 @@ class Auction extends Model
     }
 
     /**
+     * One of this auction's threads, by kind.
+     *
+     * The two kinds are separate rows rather than a flag on one room, so this
+     * takes the `ChatRoomType` instead of returning "the" room. Null until
+     * somebody opens the thread — `StartChat` creates them lazily, and an
+     * auction nobody talks about should not leave an empty room behind.
+     *
+     * @return HasOne<ChatRoom, $this>
+     */
+    public function chatRoom(ChatRoomType $type): HasOne
+    {
+        return $this->hasOne(ChatRoom::class)->where('type', $type->value);
+    }
+
+    /**
      * Restrict to auctions visible on the public storefront.
      *
      * @param  Builder<$this>  $query

@@ -53,6 +53,35 @@ export function TrashIcon(props: IconProps) {
     );
 }
 
+export function PaperclipIcon(props: IconProps) {
+    return (
+        <Icon {...props}>
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+        </Icon>
+    );
+}
+
+export function DocumentIcon(props: IconProps) {
+    return (
+        <Icon {...props}>
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <path d="M14 2v6h6" />
+            <path d="M9 13h6" />
+            <path d="M9 17h6" />
+        </Icon>
+    );
+}
+
+export function ImageIcon(props: IconProps) {
+    return (
+        <Icon {...props}>
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <circle cx="8.5" cy="8.5" r="1.5" />
+            <path d="M21 15l-5-5L5 21" />
+        </Icon>
+    );
+}
+
 export function MessageIcon(props: IconProps) {
     return (
         <Icon {...props}>
@@ -112,6 +141,42 @@ export function XCircleIcon(props: IconProps) {
             <circle cx="12" cy="12" r="9" />
             <path d="m9 9 6 6" />
             <path d="m15 9-6 6" />
+        </Icon>
+    );
+}
+
+/**
+ * The three delivery states of a message the viewer sent, in the order they
+ * replace one another.
+ *
+ * Drawn slightly heavier than the icons around them: at the 10px the bubble
+ * footer renders them, a 1.75 stroke all but disappears and the state stops being
+ * readable at all — which is the whole point of showing it.
+ */
+const tickStroke = { strokeWidth: 2.25 } as const;
+
+export function ClockIcon(props: IconProps) {
+    return (
+        <Icon {...tickStroke} {...props}>
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 7.5V12l3 2" />
+        </Icon>
+    );
+}
+
+export function CheckIcon(props: IconProps) {
+    return (
+        <Icon {...tickStroke} {...props}>
+            <path d="m4.5 12.5 5 5 10-11" />
+        </Icon>
+    );
+}
+
+export function CheckCheckIcon(props: IconProps) {
+    return (
+        <Icon {...tickStroke} {...props}>
+            <path d="m1.5 12.5 4.5 4.5 7.5-8.5" />
+            <path d="m9 15.5 2 2 11.5-13" />
         </Icon>
     );
 }

@@ -33,12 +33,15 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Payment proofs
+    | Payment uploads
     |--------------------------------------------------------------------------
     |
-    | Payment is coordinated inside the auction's group thread, so the transfer
-    | receipts are uploads against `chat_messages.proof_path` rather than a
-    | separate evidence table.
+    | Payment is coordinated inside the auction's group thread, so the QRIS and
+    | the two transfer receipts are all uploads against `chat_messages` rather
+    | than a separate evidence table. The QRIS is uploaded by the admin when
+    | they raise the invoice and stored on that message (`qris_path`), which
+    | keeps the code the winner paid to attached to the invoice even after the
+    | platform's receiving account changes.
     |
     | Restricted to images on purpose: a receipt is a screenshot of a banking or
     | e-wallet app, and anything else is either unusable or a way to push a file
@@ -56,23 +59,39 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Admin receiving account (QRIS)
+    | Chat attachments
     |--------------------------------------------------------------------------
     |
-    | One static QRIS for the whole platform: the admin receives every payment
-    | here first and forwards it to the seller, so the amount travels in the
-    | invoice message and the code itself never changes.
+    | Files anyone in a room may attach to an ordinary message: the screenshot of
+    | an account's stats, a photo of the goods, a PDF of the specs. This is the
+    | whole reason the thread exists, so it is not gated behind a payment step.
     |
-| `image_path` is null until a real QR code is committed. Nothing can be
-    | generated locally that a payment app would accept, and shipping a
-    | placeholder that looks scannable would be worse than shipping nothing -
-    | so the UI treats "unconfigured" as a first-class state and hides the
-    | invoice button rather than sending a buyer to a dead code.
+    | Images and PDF only. An executable or an archive is either unusable in the
+    | thread or a way to push a file at someone who never asked for one, and
+    | those are exactly the attachments a marketplace chat does not need.
+    |
+    */
+
+    'attachments' => [
+        'disk' => env('CHAT_ATTACHMENT_DISK', 'public'),
+        'directory' => env('CHAT_ATTACHMENT_DIRECTORY', 'chat-attachments'),
+        'max_size_kb' => (int) env('CHAT_ATTACHMENT_MAX_SIZE_KB', 4096),
+        'max_per_message' => (int) env('CHAT_ATTACHMENT_MAX_PER_MESSAGE', 6),
+        'mimes' => ['jpg', 'jpeg', 'png', 'webp', 'pdf'],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Admin receiving account labels
+    |--------------------------------------------------------------------------
+    |
+    | Optional text shown beside the QRIS image the admin uploaded, so a winner
+    | can check they are paying the right account holder. Neither key gates the
+    | invoice action: the QRIS image is the part a payment app reads.
     |
     */
 
     'qris' => [
-        'image_path' => env('CHAT_QRIS_IMAGE_PATH'),
         'account_name' => env('CHAT_QRIS_ACCOUNT_NAME'),
         'account_number' => env('CHAT_QRIS_ACCOUNT_NUMBER'),
     ],

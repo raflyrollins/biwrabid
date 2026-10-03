@@ -1,3 +1,104 @@
+/**
+ * The calendar day an instant falls on, as a local `YYYY-MM-DD` key.
+ *
+ * Used to decide where a chat thread's date separators go. Built from the local
+ * getters on purpose: `toISOString().slice(0, 10)` is UTC, so every separator
+ * would land on the wrong day for anyone east or west of Greenwich.
+ */
+export function localDayKey(value: string | Date): string {
+    const date = value instanceof Date ? value : new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+        return '';
+    }
+
+    const month = `${date.getMonth() + 1}`.padStart(2, '0');
+    const day = `${date.getDate()}`.padStart(2, '0');
+
+    return `${date.getFullYear()}-${month}-${day}`;
+}
+
+/**
+ * A date separator's label: the time for today, the weekday within the week,
+ * and the full date beyond that — the same progression WhatsApp uses, so a
+ * thread stays readable without opening anything.
+ */
+export function formatDaySeparator(
+    value: string | Date | null,
+    locale: string,
+): string {
+    if (value === null || value === '') {
+        return '';
+    }
+
+    const date = value instanceof Date ? value : new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+        return '';
+    }
+
+    const today = localDayKey(new Date());
+
+    if (localDayKey(date) === today) {
+        return new Intl.DateTimeFormat(locale, { timeStyle: 'short' }).format(
+            date,
+        );
+    }
+
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    if (localDayKey(date) === localDayKey(yesterday)) {
+        return new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(
+            -1,
+            'day',
+        );
+    }
+
+    return new Intl.DateTimeFormat(locale, {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+    }).format(date);
+}
+
+/** The clock time alone, for the corner of a message bubble. */
+export function formatTime(
+    value: string | Date | null,
+    locale: string,
+): string {
+    if (value === null || value === '') {
+        return '';
+    }
+
+    const date = value instanceof Date ? value : new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+        return '';
+    }
+
+    return new Intl.DateTimeFormat(locale, { timeStyle: 'short' }).format(date);
+}
+
+/**
+ * A file size for an attachment label: one decimal under 10MB, whole above, so
+ * "4.7 MB" does not turn into "4.7 MB" on one line and "12 MB" on the next.
+ */
+export function formatFileSize(bytes: number, locale: string): string {
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+        return '';
+    }
+
+    const megabytes = bytes / 1024 / 1024;
+    const unit = new Intl.NumberFormat(locale, {
+        style: 'unit',
+        unit: 'megabyte',
+        maximumFractionDigits: megabytes < 10 ? 1 : 0,
+    });
+
+    return unit.format(megabytes);
+}
+
 export function formatDateTime(
     value: string | Date | null,
     locale: string,

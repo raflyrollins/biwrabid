@@ -263,10 +263,12 @@ it('lets only participants read a thread', function () {
     ChatMessage::factory()->from($seller)->create(['chat_room_id' => $room->id]);
 
     $this->actingAs($winner)
-        ->get(route('chat.show', $room))
+        ->get(route('chat.index', ['c' => $room->uuid]))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
-            ->component('chat/show')
+            // The workspace is one page: a conversation opens inside the list
+            // rather than on a screen of its own.
+            ->component('chat/index')
             ->where('room.role', ChatParticipantRole::Winner->value)
             ->has('thread.messages', 1)
             ->where('thread.messages.0.sender_role', ChatParticipantRole::Seller->value)
@@ -287,7 +289,7 @@ it('accepts a message from a participant and refuses a stranger', function () {
 
     $this->actingAs($winner)
         ->post(route('chat.messages.store', $room), ['body' => 'Pembayaran sudah transfer.'])
-        ->assertRedirect(route('chat.show', $room));
+        ->assertRedirect(route('chat.index', ['c' => $room->uuid]));
 
     $this->assertDatabaseHas('chat_messages', [
         'chat_room_id' => $room->id,
@@ -340,7 +342,7 @@ it('orders the thread oldest first', function () {
     ]);
 
     $this->actingAs($member)
-        ->get(route('chat.show', $room))
+        ->get(route('chat.index', ['c' => $room->uuid]))
         ->assertInertia(fn ($page) => $page
             ->where('thread.messages.0.body', 'Pertama')
             ->where('thread.messages.1.body', 'Kedua')
@@ -529,14 +531,38 @@ it('tells the thread header whether an admin can see the room', function () {
     $startChat = app(StartChat::class);
 
     $this->actingAs($winner)
-        ->get(route('chat.show', $startChat->forAuctionGroup($auction)))
+        ->get(route('chat.index', ['c' => $startChat->forAuctionGroup($auction)->uuid]))
         ->assertInertia(fn ($page) => $page->where('room.admits_admin', true));
 
     // The credential room has to say so, rather than claiming a moderator who
     // cannot read it.
     $this->actingAs($winner)
-        ->get(route('chat.show', $startChat->forAuctionCredentials($auction)))
+        ->get(route('chat.index', ['c' => $startChat->forAuctionCredentials($auction)->uuid]))
         ->assertInertia(fn ($page) => $page->where('room.admits_admin', false));
+});
+
+it('sends a link to one conversation on to the workspace', function () {
+    $member = User::factory()->create();
+    $room = ChatRoom::factory()->support($member)->create();
+
+    // `/chat/{uuid}` is a deep link, not a second screen. It redirects to the one
+    // URL the workspace lives at so there is a single place where room selection
+    // is decided.
+    $this->actingAs($member)
+        ->get(route('chat.show', $room))
+        ->assertRedirect(route('chat.index', ['c' => $room->uuid]));
+});
+
+it('refuses the deep link itself to somebody outside the room', function () {
+    $member = User::factory()->create();
+    $stranger = User::factory()->create();
+    $room = ChatRoom::factory()->support($stranger)->create();
+
+    // Authorized before the redirect, so the link cannot be used to discover that
+    // a room exists.
+    $this->actingAs($member)
+        ->get(route('chat.show', $room))
+        ->assertForbidden();
 });
 
 it('broadcasts every message on the room private channel', function () {
@@ -555,4 +581,108 @@ it('broadcasts every message on the room private channel', function () {
             && $event->broadcastWith()['room_uuid'] === $room->uuid
             && $event->broadcastWith()['message']['sender_role'] === 'member';
     });
+});
+
+it('opens a conversation inside the workspace rather than on another screen', function () {
+    $member = User::factory()->create();
+    $room = ChatRoom::factory()->support($member)->create();
+
+    ChatMessage::factory()->from($member)->create([
+        'chat_room_id' => $room->id,
+        'body' => 'Halo admin',
+    ]);
+
+    // `?c=` is the whole selection mechanism: the list and the thread are one
+    // page, so choosing a conversation cannot navigate away from the list the
+    // admin (or the member) is working through.
+    $this->actingAs($member)
+        ->get(route('chat.index', ['c' => $room->uuid]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('chat/index')
+            ->where('room.uuid', $room->uuid)
+            ->has('thread.messages', 1)
+            ->where('thread.messages.0.body', 'Halo admin')
+            // The list rides along so the sidebar can mark the open row.
+            ->has('rooms.data', 1)
+            ->where('rooms.data.0.uuid', $room->uuid)
+        );
+});
+
+it('shows an empty thread panel when no conversation is chosen', function () {
+    $member = User::factory()->create();
+    ChatRoom::factory()->support($member)->create();
+
+    $this->actingAs($member)
+        ->get(route('chat.index'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('room', null)
+            ->where('thread', null)
+            ->has('rooms.data', 1)
+        );
+});
+
+it('refuses to open a conversation the viewer is not part of', function () {
+    $member = User::factory()->create();
+    $stranger = User::factory()->create();
+
+    $theirs = ChatRoom::factory()->support($stranger)->create();
+
+    ChatMessage::factory()->from($stranger)->create([
+        'chat_room_id' => $theirs->id,
+        'body' => 'Rahasia',
+    ]);
+
+    // `c` is the only place a client names a room, so it is the place that has to
+    // decide whether this viewer may read it. A 403 rather than an empty panel,
+    // because an empty panel would be indistinguishable from a quiet room.
+    $this->actingAs($member)
+        ->get(route('chat.index', ['c' => $theirs->uuid]))
+        ->assertForbidden();
+});
+
+it('keeps an admin out of the credential handoff through the workspace too', function () {
+    $seller = User::factory()->create();
+    $winner = User::factory()->create();
+    $admin = User::factory()->admin()->create();
+
+    $auction = Auction::factory()->for($seller, 'seller')->create(['winner_id' => $winner->id]);
+    $credentials = ChatRoom::factory()->auction($auction)->create();
+
+    // The deep link is a second way in, so the room policy has to answer it as
+    // firmly as it answers the path: the admin moderates the group thread and
+    // nothing else.
+    $this->actingAs($admin)
+        ->get(route('chat.index', ['c' => $credentials->uuid]))
+        ->assertForbidden();
+});
+
+it('lets an admin open somebody else\'s conversation', function () {
+    $member = User::factory()->create();
+    $admin = User::factory()->admin()->create();
+
+    $room = ChatRoom::factory()->support($member)->create();
+
+    ChatMessage::factory()->from($member)->create([
+        'chat_room_id' => $room->id,
+        'body' => 'Mohon bantuan pembayaran',
+    ]);
+
+    $this->actingAs($admin)
+        ->get(route('chat.index', ['c' => $room->uuid]))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('room.uuid', $room->uuid)
+            ->has('thread.messages', 1)
+            ->where('isAdminInbox', true)
+        );
+});
+
+it('404s a conversation that does not exist', function () {
+    $member = User::factory()->create();
+
+    $this->actingAs($member)
+        ->get(route('chat.index', ['c' => (string) Str::uuid()]))
+        ->assertNotFound();
 });

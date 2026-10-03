@@ -11,9 +11,16 @@ class DatabaseSeeder extends Seeder
 
     /**
      * Seed the application's database.
+     *
+     * `UserSeeder` goes first and `AuctionChatSeeder` second on purpose: the
+     * auction demo reuses the accounts `UserSeeder` creates, so running it on
+     * its own would leave two sets of users with the same emails.
      */
     public function run(): void
     {
-        $this->call(UserSeeder::class);
+        $this->call([
+            UserSeeder::class,
+            AuctionChatSeeder::class,
+        ]);
     }
 }

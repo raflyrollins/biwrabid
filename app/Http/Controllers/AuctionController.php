@@ -9,6 +9,7 @@ use App\Models\Auction;
 use App\Support\AuctionConfig;
 use App\Support\AuctionPresenter;
 use App\Support\BidPresenter;
+use App\Support\ChatPresenter;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -72,6 +73,24 @@ class AuctionController extends Controller
             ? null
             : $auction->chatRoleFor(ChatRoomType::Auction, $user);
 
+        /*
+         * Payment is coordinated in the group thread but driven from here.
+         *
+         * The transcript stays a conversation; the invoice, the receipts and the
+         * step each party owes are auction state, so they belong on the auction
+         * rather than inside a chat window. The panel is only offered to a
+         * participant who already has a room to act in — an admin who has not
+         * opened the group thread yet gets the chat button instead, which is
+         * what creates it.
+         */
+        $groupRoom = $chatGroupRole === null
+            ? null
+            : $auction->chatRoom(ChatRoomType::Group)->first();
+
+        $payment = $groupRoom === null
+            ? null
+            : ['room_uuid' => $groupRoom->uuid, 'panel' => ChatPresenter::payment($groupRoom, $user)];
+
         return Inertia::render('auctions/show', [
             'auction' => AuctionPresenter::detail($auction),
             'bids' => BidPresenter::collection($bids),
@@ -82,6 +101,7 @@ class AuctionController extends Controller
                 'minimum_next_bid' => $minimumNextBid,
                 'minimum_next_bid_label' => AuctionConfig::price($minimumNextBid),
             ],
+            'payment' => $payment,
             'can' => [
                 'update' => $user?->can('update', $auction) ?? false,
                 'cancel' => $user?->can('cancel', $auction) ?? false,

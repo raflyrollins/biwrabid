@@ -2,6 +2,7 @@ import { Link, router, useForm, usePage } from '@inertiajs/react';
 import { useEchoPublic } from '@laravel/echo-react';
 import { useState, type FormEvent } from 'react';
 import { NumberInput } from '@/components/number-input';
+import { PaymentPanel } from '@/components/chat/payment-panel';
 import { Badge } from '@/components/ui/badge';
 import { buttonClasses } from '@/components/ui/button';
 import { InputError } from '@/components/ui/input-error';
@@ -31,11 +32,21 @@ import type {
     BiddingWindow,
     ChatRole,
 } from '@/types/auction';
+import type { AuctionPayment } from '@/types/chat';
 
 type ShowProps = {
     auction: AuctionDetail;
     bids: Bid[];
     bidding: BiddingWindow;
+    /**
+     * The payment trail, for a viewer who is already in the group thread.
+     *
+     * Payment is coordinated in that thread, but it is auction state rather than
+     * conversation, so the steps live here and the thread carries the receipt.
+     * Null when the viewer has no group room yet — the chat button is what opens
+     * one, and the panel appears on the next visit.
+     */
+    payment: AuctionPayment | null;
     can: {
         update: boolean;
         cancel: boolean;
@@ -73,6 +84,7 @@ export default function AuctionShow({
     auction,
     bids: initialBids,
     bidding,
+    payment,
     can,
 }: ShowProps) {
     const { t } = useTranslation();
@@ -343,6 +355,15 @@ export default function AuctionShow({
                                 </div>
                             ) : null}
                         </div>
+
+                        {payment ? (
+                            <div className="mt-6">
+                                <PaymentPanel
+                                    roomUuid={payment.room_uuid}
+                                    payment={payment.panel}
+                                />
+                            </div>
+                        ) : null}
 
                         <div className="mt-6 border border-border-default bg-neutral-primary-soft p-6 shadow-xs">
                             <div className="flex items-center justify-between gap-3">

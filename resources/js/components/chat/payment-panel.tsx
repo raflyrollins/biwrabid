@@ -17,7 +17,7 @@ type Props = {
 };
 
 /** The steps that post a file rather than a bare confirmation. */
-const uploadActions = ['proof', 'transfer'] as const;
+const uploadActions = ['request', 'proof', 'transfer'] as const;
 
 type UploadAction = (typeof uploadActions)[number];
 
@@ -41,30 +41,48 @@ export function PaymentPanel({ roomUuid, payment: panel }: Props) {
     const action = panel.actions[0] ?? null;
     const upload = isUploadAction(action);
 
-    const form = useForm<{ proof: File | null }>({ proof: null });
+    const form = useForm<{ qris: File | null; proof: File | null }>({
+        qris: null,
+        proof: null,
+    });
     const inputRef = useRef<HTMLInputElement>(null);
-    const previews = useFilePreviews(form.data.proof ? [form.data.proof] : []);
+
+    /*
+     * Two named fields rather than one, because the endpoints disagree about
+     * what they accept: the invoice wants a `qris`, the two receipt steps want a
+     * `proof`. Sending the file under both names would mean every receipt
+     * uploaded two files.
+     */
+    const field: 'qris' | 'proof' = action === 'request' ? 'qris' : 'proof';
+    const previews = useFilePreviews(
+        form.data[field] ? [form.data[field]] : [],
+    );
 
     function submitUpload(event: React.FormEvent<HTMLFormElement>) {
         event.preventDefault();
 
-        if (form.data.proof === null || form.processing) {
+        if (form.data[field] === null || form.processing) {
             return;
         }
 
         form.post(
-            action === 'transfer'
-                ? payment.transfer.url(roomUuid)
-                : payment.proof.url(roomUuid),
+            action === 'request'
+                ? payment.request.url(roomUuid)
+                : action === 'transfer'
+                  ? payment.transfer.url(roomUuid)
+                  : payment.proof.url(roomUuid),
             {
                 forceFormData: true,
-                onSuccess: () => form.setData('proof', null),
+                onSuccess: () => {
+                    form.setData(field, null);
+                    clearFile();
+                },
             },
         );
     }
 
     function clearFile() {
-        form.setData('proof', null);
+        form.setData(field, null);
 
         if (inputRef.current) {
             inputRef.current.value = '';
@@ -172,7 +190,7 @@ export function PaymentPanel({ roomUuid, payment: panel }: Props) {
                             className="sr-only"
                             onChange={(event) =>
                                 form.setData(
-                                    'proof',
+                                    field,
                                     event.target.files?.[0] ?? null,
                                 )
                             }
@@ -193,17 +211,19 @@ export function PaymentPanel({ roomUuid, payment: panel }: Props) {
                                     'w-full border border-border-default px-4 py-2.5 text-sm',
                                 )}
                             >
-                                {t('chat.payment.choose_proof')}
+                                {field === 'qris'
+                                    ? t('chat.payment.choose_qris')
+                                    : t('chat.payment.choose_proof')}
                             </button>
                         )}
 
-                        <InputError message={form.errors.proof} />
+                        <InputError message={form.errors[field]} />
 
                         <div className="flex gap-2">
                             <button
                                 type="submit"
                                 disabled={
-                                    form.data.proof === null || form.processing
+                                    form.data[field] === null || form.processing
                                 }
                                 className={buttonClasses(
                                     'brand',
@@ -242,11 +262,9 @@ export function PaymentPanel({ roomUuid, payment: panel }: Props) {
                             disabled={form.processing}
                             onClick={() =>
                                 confirmStep(
-                                    action === 'request'
-                                        ? payment.request.url(roomUuid)
-                                        : action === 'received'
-                                          ? payment.received.url(roomUuid)
-                                          : payment.confirm.url(roomUuid),
+                                    action === 'received'
+                                        ? payment.received.url(roomUuid)
+                                        : payment.confirm.url(roomUuid),
                                 )
                             }
                             className={buttonClasses(

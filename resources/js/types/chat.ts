@@ -20,6 +20,12 @@ export type ChatMessageKind =
     | 'transfer_proof'
     | 'payment_completed';
 
+export type ChatMessageAttachment = {
+    name: string;
+    size: number;
+    url: string;
+};
+
 export type ChatMessage = {
     id: number;
     body: string;
@@ -28,9 +34,23 @@ export type ChatMessage = {
     amount: number | null;
     /** Non-null only for the two proof kinds. */
     proof_url: string | null;
+    /** Non-null only on the invoice: the QRIS the admin uploaded. */
+    qris_url: string | null;
+    attachments: ChatMessageAttachment[];
+    /**
+     * The author's user id. This — not `sender_role` — is what "is this my own
+     * message" is matched against: two people in one room can hold the same role,
+     * and in a support thread the admin and the member are the only two parties.
+     */
+    sender_id: number | null;
     sender_name: string | null;
     sender_role: ChatParticipantRole;
     created_at: string | null;
+    /**
+     * Whether every other participant in the room has read this message. Decided
+     * on the server because it depends on who is in the room.
+     */
+    read_by_all: boolean;
 };
 
 export type ChatCounterparty = {
@@ -63,7 +83,7 @@ export type PaymentPanel = {
     amount: number | null;
     bid_amount: number | null;
     admin_fee: number;
-    /** Null until a real QR code is configured; see `config/chat.php`. */
+    /** The QRIS the admin put on the invoice; null before one is sent. */
     qris: {
         image_url: string;
         account_name: string | null;
@@ -91,10 +111,15 @@ export type ChatRoom = {
     latest_message: ChatMessage | null;
 };
 
-/** The thread page's room, which additionally carries the payment panel. */
-export type ChatThreadRoom = ChatRoom & {
-    /** Null outside auction group rooms. */
-    payment: PaymentPanel | null;
+/**
+ * The payment trail, paired with the group room the payment routes bind to.
+ *
+ * Lives on the auction page: the steps are auction state, and the thread keeps
+ * only the transcript.
+ */
+export type AuctionPayment = {
+    room_uuid: string;
+    panel: PaymentPanel;
 };
 
 export type ChatThread = {

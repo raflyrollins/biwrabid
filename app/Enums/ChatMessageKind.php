@@ -20,10 +20,10 @@ enum ChatMessageKind: string
     case Message = 'message';
 
     /**
-     * The admin's invoice: a static QRIS plus the amount owed.
+     * The admin's invoice: the QRIS they uploaded plus the amount owed.
      *
      * Authored by the admin in the auction's *group* room, never the credential
-     * room.
+     * room. Carries `qris_path`.
      */
     case PaymentRequest = 'payment_request';
 
@@ -64,6 +64,18 @@ enum ChatMessageKind: string
     public function carriesProof(): bool
     {
         return $this === self::PaymentProof || $this === self::TransferProof;
+    }
+
+    /**
+     * Whether this kind carries the receiving account in `qris_path`.
+     *
+     * Separate from `carriesProof()` because it is a different column and a
+     * different meaning: this one is what the winner pays *to*, not evidence
+     * that they already did.
+     */
+    public function carriesQrIs(): bool
+    {
+        return $this === self::PaymentRequest;
     }
 
     /**

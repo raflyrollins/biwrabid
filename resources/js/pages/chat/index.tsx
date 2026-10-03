@@ -1,179 +1,217 @@
-import { Head, Link, usePage } from '@inertiajs/react';
+import { Head, router, usePage } from '@inertiajs/react';
+import { RoomList } from '@/components/chat/room-list';
+import { ChatThreadPanel } from '@/components/chat/chat-thread-panel';
 import { EmptyState } from '@/components/empty-state';
-import { MessageIcon } from '@/components/icons';
-import { Badge } from '@/components/ui/badge';
 import { buttonClasses } from '@/components/ui/button';
 import { AppLayout } from '@/layouts/app-layout';
-import { formatRelativeTime } from '@/lib/format';
 import { useTranslation } from '@/lib/i18n';
-import chat from '@/routes/chat';
+import { index as chatIndex } from '@/routes/chat';
 import type { Paginated } from '@/types/auction';
-import type { ChatParticipantRole, ChatRoom } from '@/types/chat';
+import type { ChatRoom, ChatThread } from '@/types/chat';
 
 type IndexProps = {
     rooms: Paginated<ChatRoom>;
+    /** The open conversation, or null when the list is showing on its own. */
+    room: ChatRoom | null;
+    thread: ChatThread | null;
+    /** A conversation started but not written into yet, or null. */
+    draft: ChatDraft | null;
     isAdminInbox: boolean;
+    maxLength: number;
+    maxAttachments: number;
 };
 
-const roleVariant: Record<ChatParticipantRole, 'brand' | 'success' | 'dark'> = {
-    member: 'brand',
-    seller: 'success',
-    winner: 'brand',
-    admin: 'dark',
-};
+export type ChatDraft = 'support';
 
-export default function ChatIndex({ rooms, isAdminInbox }: IndexProps) {
+/**
+ * The chat workspace: the conversations on one side, the open thread on the
+ * other.
+ *
+ * One page for everyone. A member sees the rooms they are in and the admin sees
+ * every room they moderate, and neither difference is expressed in the layout —
+ * it is the same component with a different list, so the two cannot drift into
+ * looking like different products.
+ *
+ * Choosing a conversation is a partial visit carrying `?c={uuid}` rather than a
+ * link to another screen. The URL stays on `/chat`, so an admin working through
+ * their inbox is not one navigation away from losing the list, and the thread
+ * opens beside it.
+ */
+export default function ChatIndex({
+    rooms,
+    room,
+    thread,
+    draft,
+    isAdminInbox,
+    maxLength,
+    maxAttachments,
+}: IndexProps) {
     const { t } = useTranslation();
-    const { auth, locale } = usePage().props;
+    const { auth } = usePage().props;
     const user = auth.user;
 
+    const selected = room?.uuid ?? null;
+    const empty = rooms.data.length === 0;
+
+    const title =
+        room === null
+            ? t('chat.index.title')
+            : room.kind === 'support'
+              ? t('chat.show.support_title')
+              : t(
+                    room.kind === 'group'
+                        ? 'chat.show.group_title'
+                        : 'chat.show.credentials_title',
+                    { title: room.auction?.title ?? '' },
+                );
+
     /**
-     * Support is generic, while both auction rooms name the auction. The group
-     * thread and the credential handoff are otherwise indistinguishable in the
-     * list, which would leave the reader guessing where they are about to type
-     * a password.
+     * Swap the open conversation without leaving the page.
+     *
+     * `only` keeps the room list out of the response — it has not changed, and
+     * re-sending it would make every click in the inbox re-render the list. The
+     * scroll position is *not* preserved: this is a different conversation, and
+     * landing at the bottom of the new thread is what a chat app does.
+     *
+     * `replace` rather than `push`, so reading through the inbox does not fill
+     * the back button with one entry per conversation; the thread is reached
+     * from the list, which is still there.
      */
-    function titleFor(room: ChatRoom): string {
-        if (room.kind === 'support') {
-            return t('chat.show.support_title');
-        }
-
-        const key =
-            room.kind === 'group'
-                ? 'chat.show.group_title'
-                : 'chat.show.credentials_title';
-
-        return t(key, { title: room.auction?.title ?? '' });
+    function openRoom(uuid: string | null) {
+        visit(uuid === null ? {} : { c: uuid });
     }
 
-    function subtitleFor(room: ChatRoom): string {
-        return room.counterparties.map((person) => person.name).join(', ');
+    /**
+     * Open the composer's other half for a conversation that does not exist yet.
+     *
+     * Nothing is written: the room is created by the first message, so a member
+     * who opens the composer, decides against it and navigates away never becomes
+     * an empty row in the admin's inbox. The thread still opens beside the list on
+     * desktop — starting a conversation is not a screen of its own either.
+     */
+    function openDraft(kind: ChatDraft) {
+        visit({ new: kind });
+    }
+
+    function visit(params: Record<string, string>) {
+        router.get(chatIndex.url(), params, {
+            only: ['room', 'thread', 'draft'],
+            preserveScroll: false,
+            preserveState: false,
+            replace: true,
+            showProgress: false,
+        });
     }
 
     return (
         <AppLayout title={t('chat.index.title')}>
-            <Head title={t('chat.index.title')} />
+            <Head title={title} />
 
-            <div className="mx-auto w-full max-w-[1152px] px-6 py-10">
-                <header>
-                    <h1 className="font-heading text-3xl font-bold text-heading">
-                        {isAdminInbox
-                            ? t('chat.index.admin_inbox_title')
-                            : t('chat.index.heading')}
-                    </h1>
-                    <p className="mt-2 text-sm text-body-subtle">
-                        {isAdminInbox
-                            ? t('chat.index.admin_inbox_body')
-                            : t('chat.index.subtitle')}
-                    </p>
-                </header>
-
-                {user && !isAdminInbox ? (
-                    <div className="mt-8 flex flex-col gap-3 border border-border-default bg-neutral-secondary-soft px-5 py-4 md:flex-row md:items-center md:justify-between">
-                        <div>
+            <div className="mx-auto flex h-[calc(100dvh-4.5rem)] w-full max-w-[1152px] overflow-hidden bg-neutral-primary-soft">
+                {/*
+                 * On a phone only one half is ever on screen: the list until a
+                 * conversation is chosen, then the thread with a back button that
+                 * returns to the list. From `lg` up both are visible and this is simply
+                 * the sidebar beside the thread.
+                 */}
+                <aside
+                    className={cnSidebar(selected === null && draft === null)}
+                    aria-label={t('chat.index.list_label')}
+                >
+                    {user && !isAdminInbox ? (
+                        <div className="border-b border-border-default p-4">
                             <p className="font-heading text-sm font-bold text-heading">
                                 {t('chat.index.start_support')}
                             </p>
-                            <p className="mt-1 text-sm text-body-subtle">
+                            <p className="mt-1 mb-3 text-sm text-body-subtle">
                                 {t('chat.index.support_hint')}
                             </p>
-                        </div>
-                        <Link
-                            href={chat.support.url()}
-                            method="post"
-                            as="button"
-                            className={buttonClasses(
-                                'brand',
-                                'shrink-0 px-4 py-2.5 text-sm',
-                            )}
-                        >
-                            {t('chat.index.start_support')}
-                        </Link>
-                    </div>
-                ) : null}
 
-                <div className="mt-8">
-                    {rooms.data.length === 0 ? (
+                            {/*
+                             * A button, not a form post: the room is created by the first
+                             * message, so pressing this writes nothing at all.
+                             */}
+                            <button
+                                type="button"
+                                onClick={() => openDraft('support')}
+                                className={buttonClasses(
+                                    'brand',
+                                    'w-full px-4 py-2.5 text-sm',
+                                )}
+                            >
+                                {t('chat.index.start_support')}
+                            </button>
+                        </div>
+                    ) : null}
+
+                    {empty ? (
                         <EmptyState
                             image="/images/illustrations/empty-chat.svg"
                             title={t('chat.index.empty_title')}
                             description={t('chat.index.empty_body')}
                         />
                     ) : (
-                        <ul className="divide-y divide-border-default border border-border-default bg-neutral-secondary-soft">
-                            {rooms.data.map((room) => (
-                                <li key={room.uuid}>
-                                    <Link
-                                        href={chat.show.url(room.uuid)}
-                                        className="flex items-start gap-4 px-5 py-4 transition-colors duration-150 hover:bg-neutral-tertiary"
-                                    >
-                                        {room.auction?.image_url ? (
-                                            <img
-                                                src={room.auction.image_url}
-                                                alt=""
-                                                loading="lazy"
-                                                className="h-12 w-12 shrink-0 border border-border-default object-cover"
-                                            />
-                                        ) : (
-                                            <span className="flex h-12 w-12 shrink-0 items-center justify-center bg-neutral-secondary-medium text-fg-brand">
-                                                <MessageIcon className="h-5 w-5" />
-                                            </span>
-                                        )}
-
-                                        <div className="min-w-0 flex-1">
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                <span className="truncate font-heading text-sm font-bold text-heading">
-                                                    {titleFor(room)}
-                                                </span>
-                                                {room.kind !== 'support' ? (
-                                                    <Badge
-                                                        variant={
-                                                            room.kind ===
-                                                            'auction'
-                                                                ? 'dark'
-                                                                : 'brand'
-                                                        }
-                                                    >
-                                                        {t(
-                                                            `chat.kinds.${room.kind}`,
-                                                        )}
-                                                    </Badge>
-                                                ) : null}
-                                                {room.role ? (
-                                                    <Badge
-                                                        variant={
-                                                            roleVariant[
-                                                                room.role
-                                                            ]
-                                                        }
-                                                    >
-                                                        {t(
-                                                            `chat.roles.${room.role}`,
-                                                        )}
-                                                    </Badge>
-                                                ) : null}
-                                            </div>
-
-                                            <p className="mt-1 truncate text-sm text-body-subtle">
-                                                {subtitleFor(room) ||
-                                                    room.latest_message?.body ||
-                                                    t('chat.show.empty_title')}
-                                            </p>
-                                        </div>
-
-                                        <span className="shrink-0 text-xs text-body-subtle">
-                                            {formatRelativeTime(
-                                                room.updated_at,
-                                                locale,
-                                            )}
-                                        </span>
-                                    </Link>
-                                </li>
-                            ))}
-                        </ul>
+                        <RoomList
+                            rooms={rooms.data}
+                            activeUuid={selected}
+                            onSelect={openRoom}
+                            className="flex-1"
+                        />
                     )}
-                </div>
+                </aside>
+
+                <ChatThreadPanel
+                    // Keyed on what is open, so switching conversations remounts
+                    // the panel: that is what unsubscribes the previous room's echo
+                    // channels and drops its pending bubbles. Without it a stale
+                    // listener would keep answering for a room nobody is reading.
+                    key={selected ?? draft ?? 'none'}
+                    room={room}
+                    thread={thread}
+                    draft={draft}
+                    maxLength={maxLength}
+                    maxAttachments={maxAttachments}
+                    onBack={() => openRoom(null)}
+                />
+
+                {/*
+                 * The right half with nothing open. Desktop-only: on a phone there is no
+                 * room for it, and the list alone already says which conversations there
+                 * are.
+                 */}
+                {selected === null && draft === null ? (
+                    <div className="hidden flex-1 flex-col items-center justify-center bg-neutral-secondary-soft/40 px-6 py-10 lg:flex">
+                        <EmptyState
+                            image="/images/illustrations/empty-chat.svg"
+                            title={
+                                empty
+                                    ? t('chat.index.empty_title')
+                                    : t('chat.show.select_title')
+                            }
+                            description={
+                                empty
+                                    ? t('chat.index.empty_body')
+                                    : t('chat.show.select_body')
+                            }
+                        />
+                    </div>
+                ) : null}
             </div>
         </AppLayout>
     );
+}
+
+/**
+ * The list panel's own responsive visibility.
+ *
+ * Hidden while a thread is open *on a phone only* — from `lg` up it has to stay,
+ * or switching conversations would mean going back to the list first. Written
+ * here rather than inline so the one condition both halves depend on is a single
+ * named expression instead of a repeated class string that can drift.
+ */
+function cnSidebar(open: boolean): string {
+    return [
+        'w-full shrink-0 flex-col border-border-default lg:flex lg:w-[22rem] lg:border-r',
+        open ? 'flex' : 'hidden lg:flex',
+    ].join(' ');
 }

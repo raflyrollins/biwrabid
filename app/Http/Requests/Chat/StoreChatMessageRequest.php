@@ -4,30 +4,41 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Chat;
 
-use App\Support\ChatConfig;
+use App\Http\Requests\Chat\Concerns\ValidatesChatMessage;
+use App\Models\ChatRoom;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Facades\Gate;
 
+/**
+ * Authorizes here rather than in the controller.
+ *
+ * `authorize()` runs before `rules()`, so an outsider is turned away with a
+ * 403 rather than a validation redirect. That matters more now that `body` is
+ * optional: left in the controller, "may you post here" would depend on whether
+ * the sender happened to attach a file.
+ */
 final class StoreChatMessageRequest extends FormRequest
 {
+    use ValidatesChatMessage;
+
     public function authorize(): bool
     {
-        // Ownership is settled by the controller through the `reply` ability —
-        // it needs the route-bound room, which FormRequest cannot see here.
-        return $this->user() !== null;
+        $room = $this->route('chat_room');
+        $user = $this->user();
+
+        if (! $room instanceof ChatRoom || $user === null) {
+            return false;
+        }
+
+        return Gate::forUser($user)->allows('reply', $room);
     }
 
     /**
-     * @return array<string, list<string>>
+     * @return array<string, list<mixed>>
      */
     public function rules(): array
     {
-        return [
-            'body' => [
-                'required',
-                'string',
-                'max:'.ChatConfig::messageMaxLength(),
-            ],
-        ];
+        return $this->messageRules();
     }
 
     /**
@@ -35,12 +46,7 @@ final class StoreChatMessageRequest extends FormRequest
      */
     public function messages(): array
     {
-        return [
-            'body.required' => __('ui.chat.errors.body_required'),
-            'body.max' => __('ui.chat.errors.body_too_long', [
-                'max' => ChatConfig::messageMaxLength(),
-            ]),
-        ];
+        return $this->messageMessages();
     }
 
     /**
@@ -48,8 +54,6 @@ final class StoreChatMessageRequest extends FormRequest
      */
     public function attributes(): array
     {
-        return [
-            'body' => __('ui.chat.fields.body'),
-        ];
+        return $this->messageAttributes();
     }
 }

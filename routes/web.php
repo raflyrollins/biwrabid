@@ -8,6 +8,7 @@ use App\Http\Controllers\BidController;
 use App\Http\Controllers\Chat\ChatRoomController;
 use App\Http\Controllers\Chat\MessageController;
 use App\Http\Controllers\Chat\PaymentController;
+use App\Http\Controllers\Chat\ReadReceiptController;
 use App\Http\Controllers\Chat\StartChatController;
 use App\Http\Controllers\Seller\AuctionController as SellerAuctionController;
 use Illuminate\Support\Facades\Route;
@@ -51,6 +52,12 @@ Route::middleware('auth')->group(function (): void {
         ->name('chat.auction.credentials');
     Route::get('chat/{chat_room}', [ChatRoomController::class, 'show'])->name('chat.show');
     Route::post('chat/{chat_room}/messages', [MessageController::class, 'store'])->name('chat.messages.store');
+
+    // Read receipts. Separate from the message endpoint because it is the other
+    // direction — the *reader* reports progress, not the sender — and because a
+    // receipt is written on every message that arrives while the thread is open.
+    Route::post('chat/{chat_room}/read', [ReadReceiptController::class, 'store'])
+        ->name('chat.messages.read');
 
     // Payment happens inside the auction's group thread: the admin sends the
     // QRIS, the winner and then the admin each attach a transfer receipt, and

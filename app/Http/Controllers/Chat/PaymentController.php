@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Chat;
 
 use App\Actions\CoordinatePayment;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Chat\StorePaymentInvoiceRequest;
 use App\Http\Requests\Chat\StorePaymentProofRequest;
 use App\Models\ChatRoom;
 use App\Models\User;
@@ -17,9 +18,9 @@ use Illuminate\Http\Request;
  *
  * Every handler follows the same shape: authorise `reply` (is this user in the
  * room at all), hand the work to `CoordinatePayment` (is this the right actor
- * for this step, in the right state), and redirect back to the thread. The
- * action returning null is a business rejection, not an error — the panel has
- * already moved on — so it flashes the reason rather than throwing.
+ * for this step, in the right state), and redirect back to where the step was
+ * driven from. The action returning null is a business rejection, not an error —
+ * the panel has already moved on — so it flashes the reason rather than throwing.
  *
  * There is no flash on success for the upload steps, matching `MessageController`:
  * the uploaded receipt appears in the thread immediately.
@@ -27,22 +28,20 @@ use Illuminate\Http\Request;
 class PaymentController extends Controller
 {
     /**
-     * Step 1: the admin posts the static QRIS and the invoiced amount.
+     * Step 1: the admin uploads their QRIS; the amount is worked out by the action.
      */
-    public function storeRequest(Request $request, ChatRoom $chatRoom, CoordinatePayment $payment): RedirectResponse
+    public function storeRequest(StorePaymentInvoiceRequest $request, ChatRoom $chatRoom, CoordinatePayment $payment): RedirectResponse
     {
-        $this->authorize('reply', $chatRoom);
-
+        // Membership was already settled by the form request, which authorizes
+        // before it validates; `CoordinatePayment` settles the payment step.
         /** @var User $user */
         $user = $request->user();
 
-        if ($payment->sendRequest($chatRoom, $user) === null) {
+        if ($payment->sendRequest($chatRoom, $user, $request->file('qris')) === null) {
             return $this->reject($chatRoom);
         }
 
-        return redirect()
-            ->route('chat.show', $chatRoom)
-            ->with('status', __('ui.chat.payment.flash.request_sent'));
+        return $this->settled($chatRoom, __('ui.chat.payment.flash.request_sent'));
     }
 
     /**
@@ -65,7 +64,7 @@ class PaymentController extends Controller
             return $this->reject($chatRoom);
         }
 
-        return redirect()->route('chat.show', $chatRoom);
+        return $this->settled($chatRoom);
     }
 
     /**
@@ -82,9 +81,7 @@ class PaymentController extends Controller
             return $this->reject($chatRoom);
         }
 
-        return redirect()
-            ->route('chat.show', $chatRoom)
-            ->with('status', __('ui.chat.payment.flash.received'));
+        return $this->settled($chatRoom, __('ui.chat.payment.flash.received'));
     }
 
     /**
@@ -107,7 +104,7 @@ class PaymentController extends Controller
             return $this->reject($chatRoom);
         }
 
-        return redirect()->route('chat.show', $chatRoom);
+        return $this->settled($chatRoom);
     }
 
     /**
@@ -127,9 +124,24 @@ class PaymentController extends Controller
         // The one payment action worth a flash: it is an auction lifecycle
         // outcome, the seller is on a different page than the winner, and nobody
         // else would otherwise learn the money landed.
-        return redirect()
-            ->route('chat.show', $chatRoom)
-            ->with('status', __('ui.chat.payment.flash.completed'));
+        return $this->settled($chatRoom, __('ui.chat.payment.flash.completed'));
+    }
+
+    /**
+     * The step went through; send the actor back to where they were standing.
+     *
+     * The steps are driven from the auction page now that the payment panel
+     * lives there, so redirecting to the thread would throw the actor out of the
+     * screen they acted on. The thread stays one click away, and the receipt the
+     * step just wrote is waiting in it.
+     */
+    private function settled(ChatRoom $chatRoom, ?string $status = null): RedirectResponse
+    {
+        $redirect = $chatRoom->auction === null
+            ? redirect()->route('chat.index', ['c' => $chatRoom->uuid])
+            : redirect()->route('auctions.show', $chatRoom->auction);
+
+        return $status === null ? $redirect : $redirect->with('status', $status);
     }
 
     /**
@@ -137,8 +149,6 @@ class PaymentController extends Controller
      */
     private function reject(ChatRoom $chatRoom): RedirectResponse
     {
-        return redirect()
-            ->route('chat.show', $chatRoom)
-            ->with('error', __('ui.chat.payment.errors.unavailable'));
+        return $this->settled($chatRoom)->with('error', __('ui.chat.payment.errors.unavailable'));
     }
 }
