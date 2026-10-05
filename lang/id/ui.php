@@ -301,6 +301,67 @@ return [
             'empty_title' => 'Belum ada percakapan',
             'empty_body' => 'Mulai chat dengan admin untuk pembayaran, atau buka chat privat dengan penjual setelah Anda menang.',
             'list_label' => 'Daftar percakapan',
+            'search' => 'Cari percakapan…',
+            'search_clear' => 'Hapus pencarian',
+            'search_empty' => 'Tidak ada percakapan yang cocok',
+            'unread' => 'Pesan belum dibaca',
+        ],
+
+        /*
+        | Correcting and removing what a person wrote: the right-click menu, the
+        | inline editor, and the outcomes. `*_refused` exists because the server
+        | re-checks every one of these — a menu that was open when somebody else
+        | posted, or a window that closed while it was open — and a silent no-op
+        | would read as a broken button.
+        */
+        'actions' => [
+            /*
+            | Storefront buttons: opening the group thread and the credential
+            | handoff from an auction.
+            */
+            'open_group_chat_winner' => 'Chat dengan Pemenang',
+            'open_group_chat_seller' => 'Chat dengan Penjual',
+            'open_credentials_winner' => 'Kirim Kredensial',
+            'open_credentials_seller' => 'Terima Kredensial',
+            'credentials_hint' => 'Kredensial hanya terlihat oleh kamu dan pihak lain, tanpa admin.',
+
+            /*
+            | The right-click menu on a room and on a message: closing a thread,
+            | editing what you wrote, and the two meanings of deleting it. Each
+            | action that can disappear somebody's data says what it leaves
+            | behind, because "delete" on a payment thread is not one decision.
+            |
+            | One array rather than two with the same name: a repeated key in the
+            | same block silently replaces the earlier one, so the storefront
+            | buttons would have overwritten these (or the other way round) and
+            | the loser would have shown up as a raw `chat.actions.*` string in
+            | the UI.
+            */
+            'menu' => 'Opsi pesan',
+            'close_room' => 'Tutup chat',
+            'dismiss_room' => 'Hapus chat',
+            'dismiss_room_hint' => 'Hanya hilang dari daftar Anda. Pesan tetap ada untuk peserta lain.',
+            'edit' => 'Edit pesan',
+            'edit_save' => 'Simpan',
+            'edit_cancel' => 'Batal',
+            'edit_placeholder' => 'Tulis ulang pesan...',
+            'delete_self' => 'Hapus untuk saya',
+            'delete_self_hint' => 'Hanya hilang dari tampilan Anda. Pesan tetap ada untuk peserta lain.',
+            'delete_everyone' => 'Hapus untuk semua orang',
+            'delete_everyone_hint' => 'Pesan dihapus permanen dari percakapan ini.',
+            'delete_expired' => 'Hapus untuk semua orang hanya bisa 10 menit setelah dikirim.',
+            'edited' => 'diubah',
+            'confirm_delete_everyone' => 'Hapus pesan ini untuk semua orang?',
+            'confirm_dismiss_room' => 'Hapus percakapan ini dari daftar Anda?',
+        ],
+
+        'feedback' => [
+            'edited' => 'Pesan diperbarui.',
+            'edit_refused' => 'Pesan itu tidak bisa diubah lagi.',
+            'deleted_self' => 'Pesan dihapus dari tampilan Anda.',
+            'deleted_everyone' => 'Pesan dihapus untuk semua orang.',
+            'delete_refused' => 'Pesan itu sudah tidak bisa dihapus.',
+            'room_closed' => 'Percakapan ditutup dari daftar Anda.',
         ],
 
         'show' => [
@@ -354,14 +415,6 @@ return [
             'support' => 'Bantuan',
             'group' => 'Grup Lelang',
             'auction' => 'Kredensial',
-        ],
-
-        'actions' => [
-            'open_group_chat_winner' => 'Chat dengan Pemenang',
-            'open_group_chat_seller' => 'Chat dengan Penjual',
-            'open_credentials_winner' => 'Kirim Kredensial',
-            'open_credentials_seller' => 'Terima Kredensial',
-            'credentials_hint' => 'Kredensial hanya terlihat oleh kamu dan pihak lain, tanpa admin.',
         ],
 
         'fields' => [

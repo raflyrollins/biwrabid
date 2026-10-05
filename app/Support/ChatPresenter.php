@@ -117,10 +117,36 @@ final class ChatPresenter
             'sender_name' => $message->sender?->name,
             'sender_role' => $message->senderRole()->value,
             'created_at' => $message->created_at?->toIso8601String(),
+            // Non-null once the text has been corrected, so the bubble can say so.
+            // A separate column rather than `updated_at`, which also moves when a
+            // payment message updates its amount.
+            'edited_at' => $message->edited_at?->toIso8601String(),
             // The double tick. False until every other participant has a receipt,
             // which is decided on the server because it depends on who is in the
             // room — see `ChatMessage::isReadByAll()`.
             'read_by_all' => $message->isReadByAll(),
+        ];
+    }
+
+    /**
+     * Whether this viewer may correct or retract a message, as the thread renders
+     * it.
+     *
+     * Per viewer rather than part of `message()`, because a broadcast payload is
+     * one payload for everybody in the room: "can I edit this" is different for the
+     * author and for the admin reading over their shoulder, so it cannot ride along
+     * with the content that is the same for both of them.
+     *
+     * @return array{can_edit: bool, can_delete_for_all: bool}
+     */
+    public static function messageActions(ChatMessage $message, User $viewer): array
+    {
+        return [
+            'can_edit' => $message->canBeEditedBy($viewer),
+            // "Delete for me" is always available to a participant who can see the
+            // message, so it needs no per-viewer decision: it writes nothing but
+            // the viewer's own tombstone.
+            'can_delete_for_all' => $message->canBeDeletedForAllBy($viewer),
         ];
     }
 
@@ -132,9 +158,13 @@ final class ChatPresenter
      *                               list, and one instance can then be shared by
      *                               the whole page instead of being re-queried per
      *                               message.
+     * @param  User|null  $viewer  when given, each message also carries what *this*
+     *                             viewer may do to it. Left out for a broadcast
+     *                             payload, which is one payload for the whole room
+     *                             and cannot answer a per-person question.
      * @return array<int, array<string, mixed>>
      */
-    public static function messages(iterable $messages, ?ChatRoom $room = null): array
+    public static function messages(iterable $messages, ?ChatRoom $room = null, ?User $viewer = null): array
     {
         $presented = [];
 
@@ -143,7 +173,13 @@ final class ChatPresenter
                 $message->setRelation('room', $room);
             }
 
-            $presented[] = self::message($message);
+            $shape = self::message($message);
+
+            if ($viewer !== null) {
+                $shape = array_merge($shape, self::messageActions($message, $viewer));
+            }
+
+            $presented[] = $shape;
         }
 
         return $presented;
@@ -299,12 +335,23 @@ final class ChatPresenter
     }
 
     /**
-     * @return array<int, array<string, mixed>>
+     * The room's other participants, in the shape the thread header and the room
+     * list both read.
+     *
+     * `role` leaves as a string because it is a wire value the client matches against
+     * a translation key, not an enum it can use.
+     *
+     * @return array<int, array{id: int|null, name: string|null, role: string}>
      */
     private static function counterparties(ChatRoom $room, User $viewer): array
     {
         return array_map(
             static fn (array $person): array => [
+                'id' => $person['id'],
+                // Null on the member's side of a support thread: the other party is
+                // "the admin" rather than one person, so the client labels the role
+                // instead of naming somebody. The id rides along because the avatar
+                // and the "is this my message" check both key off identity.
                 'name' => $person['name'],
                 'role' => $person['role']->value,
             ],

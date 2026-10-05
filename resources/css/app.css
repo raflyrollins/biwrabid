@@ -396,6 +396,27 @@
     }
 }
 
+@layer base {
+    /*
+    | Everything you can click says so.
+    |
+    | Browsers only ship a pointer cursor for links, so a `<button>` — which is what
+    | most of this app's controls are, precisely because a button is keyboard
+    | reachable and a `<div onclick>` is not — looked identical to a label. Written
+    | as one base rule rather than per component so a control cannot be added
+    | without it, and so no component has to remember.
+    |
+    | `not(:disabled)` keeps a genuinely disabled control out of it: that one
+    | should look dead, and `buttonClasses` already gives it the muted colour.
+    */
+    button:not(:disabled),
+    [role='button']:not([aria-disabled='true']),
+    summary,
+    label[for] {
+        cursor: pointer;
+    }
+}
+
 /*
 |--------------------------------------------------------------------------
 | Modal transitions

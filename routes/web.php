@@ -6,9 +6,11 @@ use App\Http\Controllers\Auth\LogoutController;
 use App\Http\Controllers\Auth\RegisterController;
 use App\Http\Controllers\BidController;
 use App\Http\Controllers\Chat\ChatRoomController;
+use App\Http\Controllers\Chat\MessageActionController;
 use App\Http\Controllers\Chat\MessageController;
 use App\Http\Controllers\Chat\PaymentController;
 use App\Http\Controllers\Chat\ReadReceiptController;
+use App\Http\Controllers\Chat\RoomDismissalController;
 use App\Http\Controllers\Chat\StartChatController;
 use App\Http\Controllers\Seller\AuctionController as SellerAuctionController;
 use Illuminate\Support\Facades\Route;
@@ -52,6 +54,20 @@ Route::middleware('auth')->group(function (): void {
         ->name('chat.auction.credentials');
     Route::get('chat/{chat_room}', [ChatRoomController::class, 'show'])->name('chat.show');
     Route::post('chat/{chat_room}/messages', [MessageController::class, 'store'])->name('chat.messages.store');
+
+    // Editing and removing a message. Bound to the room by uuid and the message by
+    // its id: the room is the authorisation boundary and the message id is the
+    // thing being changed, and neither is read from the request body where a client
+    // could point them somewhere else.
+    Route::patch('chat/{chat_room}/messages/{message}', [MessageActionController::class, 'update'])
+        ->name('chat.messages.update');
+    Route::delete('chat/{chat_room}/messages/{message}', [MessageActionController::class, 'destroy'])
+        ->name('chat.messages.destroy');
+
+    // "Close this chat for me". Writes a tombstone rather than deleting the room,
+    // so the other participants and the payment trail keep it.
+    Route::post('chat/{chat_room}/dismiss', [RoomDismissalController::class, 'store'])
+        ->name('chat.dismiss');
 
     // Read receipts. Separate from the message endpoint because it is the other
     // direction — the *reader* reports progress, not the sender — and because a

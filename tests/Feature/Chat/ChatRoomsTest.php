@@ -679,10 +679,71 @@ it('lets an admin open somebody else\'s conversation', function () {
         );
 });
 
-it('404s a conversation that does not exist', function () {
+it('404s a conversation that does not exist', function (): void {
     $member = User::factory()->create();
 
     $this->actingAs($member)
         ->get(route('chat.index', ['c' => (string) Str::uuid()]))
         ->assertNotFound();
+});
+
+/*
+ * A support room used to name nobody on either side.
+ *
+ * For the admin that made the inbox a column of identical "Help & Payment" rows
+ * with no way to tell whose thread was whose — the one question an inbox exists to
+ * answer. For the member the counterpart is the admin, and there can be several
+ * admins, so the entry carries the role and no name and the client labels it.
+ */
+it('names the member in an admins support inbox', function (): void {
+    $member = User::factory()->create(['name' => 'Rina Wijaya']);
+    $admin = User::factory()->admin()->create();
+
+    $room = ChatRoom::factory()->support($member)->create();
+    ChatMessage::factory()->from($member)->create([
+        'chat_room_id' => $room->id,
+        'body' => 'Halo admin',
+    ]);
+
+    $this->actingAs($admin)
+        ->get(route('chat.index'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('rooms.data.0.counterparties.0.name', 'Rina Wijaya')
+            ->where('rooms.data.0.counterparties.0.role', ChatParticipantRole::Member->value)
+            ->where('rooms.data.0.counterparties.0.id', $member->id)
+        );
+});
+
+it('labels the other side for a member reading their own support thread', function (): void {
+    $member = User::factory()->create();
+    User::factory()->admin()->create();
+
+    $room = ChatRoom::factory()->support($member)->create();
+
+    $this->actingAs($member)
+        ->get(route('chat.index'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            // No name to give: the counterpart is "the admin", not one person.
+            ->where('rooms.data.0.counterparties.0.name', null)
+            ->where('rooms.data.0.counterparties.0.role', ChatParticipantRole::Admin->value)
+        );
+});
+
+it('carries the counterpart identity the thread header and avatar read', function (): void {
+    $seller = User::factory()->create(['name' => 'Andi']);
+    $winner = User::factory()->create(['name' => 'Maya']);
+    $auction = Auction::factory()->for($seller, 'seller')->create(['winner_id' => $winner->id]);
+
+    $room = ChatRoom::factory()->auction($auction)->create();
+
+    $this->actingAs($winner)
+        ->get(route('chat.index', ['c' => $room->uuid]))
+        ->assertInertia(fn ($page) => $page
+            // Everyone but the viewer, so the header can name them and the avatar
+            // can pick its colour from the right person.
+            ->where('room.counterparties.0.name', 'Andi')
+            ->where('room.counterparties.0.id', $seller->id)
+        );
 });

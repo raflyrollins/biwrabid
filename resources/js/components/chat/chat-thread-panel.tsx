@@ -9,6 +9,13 @@ import {
     type ChangeEvent,
     type FormEvent,
 } from 'react';
+import { Avatar, roomAvatarName } from '@/components/chat/avatar';
+import {
+    ContextMenu,
+    useContextMenu,
+    type ContextMenuItem,
+    type ContextMenuState,
+} from '@/components/context-menu';
 import { PaymentQrisCard } from '@/components/chat/payment-qris-card';
 import {
     ArrowLeftIcon,
@@ -36,8 +43,10 @@ import { useTranslation } from '@/lib/i18n';
 import { useFilePreviews } from '@/lib/use-file-previews';
 import { cn } from '@/lib/utils';
 import {
+    destroy as destroyMessage,
     read as readReceipts,
     store as storeMessage,
+    update as updateMessage,
 } from '@/routes/chat/messages';
 import { support as startSupport } from '@/routes/chat';
 import type {
@@ -92,7 +101,14 @@ type ThreadPanelProps = {
     draft?: ChatDraft | null;
     maxLength: number;
     maxAttachments: number;
-    /** Close the thread and go back to the list on a phone. */
+    /**
+     * Close the thread and go back to the list.
+     *
+     * Three callers on purpose: the back button on a phone, the right-click menu on
+     * desktop, and the Escape key. One function rather than three, because "leave
+     * this conversation" is one decision and three code paths for it would be three
+     * chances to end up in different places.
+     */
     onBack: () => void;
 };
 
@@ -147,15 +163,6 @@ function isPaymentTrail(kind: ChatMessageKind): boolean {
     return kind !== 'message';
 }
 
-function initials(name: string): string {
-    return name
-        .split(' ')
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((part) => part[0]?.toUpperCase() ?? '')
-        .join('');
-}
-
 function isPdf(name: string): boolean {
     return name.toLowerCase().endsWith('.pdf');
 }
@@ -165,8 +172,33 @@ function isPdf(name: string): boolean {
  */
 type Row =
     | { type: 'day'; key: string; label: string }
-    | { type: 'message'; key: string; message: ChatMessage; own: boolean }
+    | {
+          type: 'message';
+          key: string;
+          message: ChatMessage;
+          own: boolean;
+          /** Continues the previous bubble: no name, tight spacing. */
+          grouped: boolean;
+      }
     | { type: 'pending'; key: string; pending: PendingMessage };
+
+/**
+ * Whether two messages close enough together read as one turn.
+ *
+ * Five minutes. Long enough that a reply to a message from yesterday is not glued
+ * to it, short enough that someone typing a paragraph lands in the same run.
+ */
+const runGapMs = 5 * 60 * 1000;
+
+function sameRun(previousAt: string | null, current: string | null): boolean {
+    if (previousAt === null || current === null) {
+        return false;
+    }
+
+    const gap = new Date(current).getTime() - new Date(previousAt).getTime();
+
+    return gap >= 0 && gap < runGapMs;
+}
 
 /**
  * One conversation: header, transcript, composer.
@@ -204,6 +236,63 @@ export function ChatThreadPanel({
     const [readByAll, setReadByAll] = useState<number[]>([]);
     /** Ids already reported as read, so the thread does not re-report them. */
     const reportedRef = useRef<Set<number>>(new Set());
+
+    /**
+     * The message currently open in the inline editor, and the message the
+     * right-click menu is open on.
+     *
+     * Two separate pieces of state because they answer different questions and
+     * cancel differently: Escape in the editor puts the text back, Escape on the
+     * menu just closes the menu.
+     */
+    const [editingId, setEditingId] = useState<number | null>(null);
+    const [menu, setMenu] = useState<{
+        state: ContextMenuState;
+        message: ChatMessage;
+    } | null>(null);
+
+    /**
+     * Messages removed while the thread was open — by somebody else, or by this
+     * viewer in another tab.
+     *
+     * Held client-side rather than filtered from the response because a removal that
+     * arrived over the socket has no page load behind it: without this the bubble
+     * would sit on screen until somebody reloaded, which is exactly the state that
+     * makes people not trust what they are looking at.
+     */
+    const [removed, setRemoved] = useState<Set<number>>(new Set());
+
+    /*
+     * The menu on the empty space of the thread, as opposed to on a message.
+     *
+     * Only one "close" action here, and it is the same one the back button and the
+     * Escape key do: right-clicking the background of a thread is a request to get
+     * out of it, not a request for anything about a message. A separate menu would be
+     * a second set of items competing with the message one for the same gesture.
+     */
+    const [backgroundMenu, setBackgroundMenu] =
+        useState<ContextMenuState | null>(null);
+
+    const onTranscriptContextMenu = useContextMenu((state) => {
+        // A bubble already handles its own right-click, and this is the container it
+        // sits in: without this check the message menu would open and then be
+        // immediately replaced by the background one as the event bubbles up.
+        const target = state.target;
+
+        if (target?.closest('[data-message-id]') !== null) {
+            return;
+        }
+
+        // A touch device has no right button; a long press would fire this same
+        // handler and put a menu with no discoverable dismissal over a phone screen
+        // where there is no back button to close the thread with. Left to the
+        // desktop gesture on purpose — the phone already has its own way out.
+        if (window.matchMedia('(pointer: fine)').matches === false) {
+            return;
+        }
+
+        setBackgroundMenu(state);
+    });
 
     const bottomRef = useRef<HTMLDivElement | null>(null);
     const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -255,6 +344,55 @@ export function ChatThreadPanel({
         [uuid, user?.id],
     );
 
+    /*
+     * Somebody corrected or removed a message in this room.
+     *
+     * Applied to the local copy rather than triggering a reload: a person reading
+     * the thread should see an account number change under them, not watch the page
+     * they were halfway down get thrown away. The one thing that *is* dropped is an
+     * open editor whose subject no longer exists.
+     */
+    useEcho<{ room_uuid: string; message: ChatMessage }>(
+        `chat.rooms.${uuid}`,
+        '.chat.message.updated',
+        (payload) => {
+            if (payload.room_uuid !== uuid) {
+                return;
+            }
+
+            setIncoming((current) =>
+                current.some((message) => message.id === payload.message.id)
+                    ? current.map((message) =>
+                          message.id === payload.message.id
+                              ? { ...message, ...payload.message }
+                              : message,
+                      )
+                    : [...current, payload.message],
+            );
+        },
+        [uuid],
+    );
+
+    useEcho<{
+        room_uuid: string;
+        message_id: number;
+        for_everyone: boolean;
+    }>(
+        `chat.rooms.${uuid}`,
+        '.chat.message.deleted',
+        (payload) => {
+            if (payload.room_uuid !== uuid) {
+                return;
+            }
+
+            setRemoved((current) => new Set(current).add(payload.message_id));
+            setEditingId((current) =>
+                current === payload.message_id ? null : current,
+            );
+        },
+        [uuid],
+    );
+
     // The server already answered this send, so drop the optimistic copy the
     // reload replaces - otherwise it renders twice.
     useEffect(() => {
@@ -278,6 +416,57 @@ export function ChatThreadPanel({
     }, [messages, incoming]);
 
     /*
+     * Correcting and removing.
+     *
+     * The bubble is edited in place rather than in a dialog, because the whole point
+     * of an edit is seeing the sentence you are correcting in its surroundings — an
+     * account number under a question, not floating in a modal.
+     *
+     * Both go through a visit that reloads the thread, because the server decides
+     * whether the action applied (`can_edit`, the ten-minute window) and a client
+     * that assumed success would show a tick on a message the server refused. The
+     * redirect reload is the answer coming back; the flash says which way it went.
+     */
+    function saveEdit(message: ChatMessage, body: string) {
+        const trimmed = body.trim();
+
+        if (trimmed === '' || trimmed === message.body) {
+            setEditingId(null);
+
+            return;
+        }
+
+        router.patch(
+            updateMessage.url([roomUuid, message.id]),
+            { body: trimmed },
+            {
+                preserveScroll: true,
+                preserveState: true,
+                showProgress: false,
+                onSuccess: () => setEditingId(null),
+            },
+        );
+    }
+
+    function removeMessage(message: ChatMessage, scope: 'self' | 'everyone') {
+        /*
+         * `router.delete()` takes no separate data argument — unlike `patch()`, it
+         * has no `data` parameter of its own, so the payload rides inside the options
+         * object. Passing a third argument would be silently dropped by the router.
+         */
+        router.delete(destroyMessage.url([roomUuid, message.id]), {
+            data: { scope },
+            preserveScroll: true,
+            preserveState: true,
+            showProgress: false,
+            // The editor is open on this message and its subject is about to
+            // disappear, so leaving it open would strand the cursor in a box whose
+            // contents are gone.
+            onSuccess: () => setEditingId(null),
+        });
+    }
+
+    /*
      * A separator whenever the calendar day changes, which is what makes a long
      * thread skimmable. `localDayKey` is used rather than a formatted date so
      * the comparison is on the local day and not on UTC.
@@ -285,8 +474,16 @@ export function ChatThreadPanel({
     const rows = useMemo<Row[]>(() => {
         const built: Row[] = [];
         let previousDay = '';
+        let previousSender: number | null | undefined;
+        let previousOwn = false;
+        let previousAt: string | null = null;
 
         for (const message of visible) {
+            // Removed over the socket since the last reload, or hidden for this
+            // viewer by a page load that has not happened yet.
+            if (removed.has(message.id)) {
+                continue;
+            }
             const day = message.created_at
                 ? localDayKey(message.created_at)
                 : '';
@@ -298,14 +495,33 @@ export function ChatThreadPanel({
                     label: formatDaySeparator(message.created_at, locale),
                 });
                 previousDay = day;
+                previousSender = null;
             }
+
+            /*
+             * Consecutive messages from one person read as a single turn, so the
+             * sender's name is printed once at the top of the run and the rest sit
+             * tight underneath. A run breaks on a different sender, on the viewer's
+             * own message, or after a silence long enough that it is a new thought
+             * rather than another line.
+             */
+            const continues =
+                previousSender !== null &&
+                previousSender === message.sender_id &&
+                isOwnMessage(message, user?.id) === previousOwn &&
+                sameRun(previousAt, message.created_at);
 
             built.push({
                 type: 'message',
                 key: `m-${message.id}`,
                 message,
                 own: isOwnMessage(message, user?.id),
+                grouped: continues,
             });
+
+            previousSender = message.sender_id;
+            previousOwn = isOwnMessage(message, user?.id);
+            previousAt = message.created_at;
         }
 
         return [
@@ -442,8 +658,18 @@ export function ChatThreadPanel({
      */
     const subtitle = [
         ...(user && room.role ? [t(`chat.roles.${room.role}`)] : []),
-        ...room.counterparties.map((person) => person.name),
-    ].join(' \u00b7 ');
+        /*
+         * Counterparties with the role label standing in for a null name - a support
+         * thread seen by its own member has no single admin to name. Filtering
+         * afterwards is what stops a lone separator appearing when the role label
+         * is absent and every name is null.
+         */
+        ...room.counterparties.map(
+            (person) => person.name ?? t(`chat.roles.${person.role}`),
+        ),
+    ]
+        .filter((part) => part !== '')
+        .join(' \u00b7 ');
 
     /**
      * Nothing to send means nothing to press.
@@ -570,9 +796,9 @@ export function ChatThreadPanel({
     }
 
     return (
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {/* Sticky room header: back, who it is, who is in it. */}
-            <header className="z-10 flex shrink-0 items-center gap-3 border-b border-border-default bg-neutral-primary-soft px-3 py-2.5 sm:px-4">
+            <header className="z-10 flex h-14 shrink-0 items-center gap-2.5 border-b border-border-default bg-neutral-primary-soft px-3 sm:px-4">
                 {/*
                  * Only on a phone, where the list is a different screen. On
                  * desktop both halves are already visible and this would close the
@@ -588,12 +814,18 @@ export function ChatThreadPanel({
                 </button>
 
                 <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-full bg-brand-soft font-heading text-xs font-bold text-fg-brand-strong">
-                        {initials(room.auction?.title ?? title)}
-                    </span>
+                    {/*
+                     * The same avatar the room list draws, from the same helper: the
+                     * conversation's face has to be the same face in both places, or
+                     * the list is not actually identifying anything.
+                     */}
+                    <Avatar
+                        name={roomAvatarName(room, t('chat.roles.admin'))}
+                        size={36}
+                    />
 
                     <span className="min-w-0">
-                        <span className="block truncate font-heading text-sm font-bold text-heading">
+                        <span className="block truncate font-heading text-sm font-semibold text-heading">
                             {title}
                         </span>
                         {subtitle !== '' ? (
@@ -635,7 +867,17 @@ export function ChatThreadPanel({
 
             <ScrollArea
                 ref={scrollRef}
-                className="flex-1 space-y-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-4"
+                /*
+                 * Right-click on the empty space of the thread opens the same menu
+                 * as the back button: leave this conversation.
+                 *
+                 * Bound to the scroll container rather than to each bubble, so the
+                 * target is always inside the transcript — a right-click on the
+                 * composer is somebody trying to paste, and swallowing that to open
+                 * a menu would be actively hostile.
+                 */
+                onContextMenu={onTranscriptContextMenu}
+                className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-4"
             >
                 {visible.length === 0 && pending.length === 0 ? (
                     <p className="py-10 text-center text-sm text-body-subtle">
@@ -669,129 +911,23 @@ export function ChatThreadPanel({
                         );
                     }
 
-                    const { message, own } = row;
-
-                    return isPaymentTrail(message.kind) ? (
-                        <div
+                    return (
+                        <MessageBubble
                             key={row.key}
-                            className="my-3 flex justify-center px-6"
-                        >
-                            <div className="w-full max-w-md rounded-lg border border-border-default bg-neutral-secondary-soft px-3 py-2.5 text-center">
-                                <Badge variant={paymentBadge[message.kind]}>
-                                    {t(`chat.payment.kinds.${message.kind}`)}
-                                </Badge>
-
-                                {message.amount !== null ? (
-                                    <p className="mt-1.5 font-heading text-sm font-bold text-heading">
-                                        {formatCurrency(
-                                            message.amount,
-                                            locale,
-                                            currency,
-                                        )}
-                                    </p>
-                                ) : null}
-
-                                {/*
-          Rendered per message rather than from the room prop, so a payment that
-          is still in flight keeps showing the code the winner actually paid even
-          after the platform's account changes.
-        */}
-                                {message.qris_url ? (
-                                    <div className="mt-2">
-                                        <PaymentQrisCard
-                                            qris={{
-                                                image_url: message.qris_url,
-                                                account_name: null,
-                                                account_number: null,
-                                            }}
-                                        />
-                                    </div>
-                                ) : null}
-
-                                {message.proof_url ? (
-                                    <a
-                                        href={message.proof_url}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="mt-2 block"
-                                    >
-                                        <img
-                                            src={message.proof_url}
-                                            alt=""
-                                            className="mx-auto max-h-48 border border-border-default object-contain"
-                                        />
-                                    </a>
-                                ) : null}
-
-                                <p className="mt-1.5 text-xs whitespace-pre-wrap text-body-subtle">
-                                    {message.body}
-                                </p>
-                            </div>
-                        </div>
-                    ) : (
-                        <div
-                            key={row.key}
-                            className={cn(
-                                'flex',
-                                own ? 'justify-end' : 'justify-start',
-                            )}
-                        >
-                            <div
-                                className={cn(
-                                    'max-w-[85%] rounded-2xl px-3 py-2 sm:max-w-[70%]',
-                                    own
-                                        ? 'rounded-br-sm bg-brand-softer'
-                                        : 'rounded-bl-sm bg-neutral-secondary-soft',
-                                )}
-                            >
-                                {/* The name only on someone else's bubble: on your
-                            own you already know it is you. */}
-                                {!own ? (
-                                    <p className="mb-0.5 text-xs font-semibold text-fg-brand-strong">
-                                        {message.sender_name ??
-                                            t('chat.roles.member')}
-                                    </p>
-                                ) : null}
-
-                                {message.attachments.length > 0 ? (
-                                    <AttachmentGrid
-                                        attachments={message.attachments}
-                                        locale={locale}
-                                    />
-                                ) : null}
-
-                                {message.body !== '' ? (
-                                    <p className="text-sm whitespace-pre-wrap text-heading">
-                                        {message.body}
-                                    </p>
-                                ) : null}
-
-                                <p
-                                    className={cn(
-                                        'mt-0.5 flex items-center justify-end gap-1 text-right text-[10px]',
-                                        own
-                                            ? 'text-fg-brand-subtle'
-                                            : 'text-body-subtle',
-                                    )}
-                                >
-                                    {formatTime(message.created_at, locale)}
-
-                                    {/* Only the viewer's own messages carry a
-                            delivery state: a tick on someone else's would claim
-                            something about their send. */}
-                                    {own ? (
-                                        <DeliveryTick
-                                            state={
-                                                message.read_by_all ||
-                                                readByAll.includes(message.id)
-                                                    ? 'read'
-                                                    : 'sent'
-                                            }
-                                        />
-                                    ) : null}
-                                </p>
-                            </div>
-                        </div>
+                            message={row.message}
+                            own={row.own}
+                            grouped={row.grouped}
+                            readByAll={readByAll.includes(row.message.id)}
+                            editing={editingId === row.message.id}
+                            locale={locale}
+                            currency={currency}
+                            onStartEdit={() => setEditingId(row.message.id)}
+                            onCancelEdit={() => setEditingId(null)}
+                            onSaveEdit={(body) => saveEdit(row.message, body)}
+                            onOpenMenu={(target, state) =>
+                                setMenu({ state, message: target })
+                            }
+                        />
                     );
                 })}
 
@@ -805,7 +941,421 @@ export function ChatThreadPanel({
                 maxLength={maxLength}
                 maxAttachments={maxAttachments}
             />
+
+            {/*
+             * The right-click menu for a message. Rendered once for the whole thread
+             * rather than per bubble: the items depend on the message the menu was
+             * opened on, and thirty hidden menus would be thirty sets of listeners.
+             */}
+            {menu !== null ? (
+                <MessageMenu
+                    state={menu.state}
+                    message={menu.message}
+                    onClose={() => setMenu(null)}
+                    onEdit={() => {
+                        setEditingId(menu.message.id);
+                        setMenu(null);
+                    }}
+                    onDelete={(scope) => removeMessage(menu.message, scope)}
+                />
+            ) : null}
+
+            {/*
+             * Right-click on the thread's empty space. Desktop-only in practice —
+             * see the note on the menu's own items — and deliberately one item: the
+             * back button on a phone and the Escape key do the same thing, so this is
+             * a third way to reach an action that already has two.
+             */}
+            {backgroundMenu !== null ? (
+                <ContextMenu
+                    state={backgroundMenu}
+                    label={t('chat.actions.menu')}
+                    onClose={() => setBackgroundMenu(null)}
+                    items={[
+                        {
+                            key: 'close',
+                            label: t('chat.actions.close_room'),
+                            onSelect: onBack,
+                        },
+                    ]}
+                />
+            ) : null}
         </div>
+    );
+}
+
+/**
+ * One message as a bubble, or — when it is the payment trail — as the centred
+ * system line it actually is.
+ *
+ * Split out because this is where three concerns meet that used to be one long
+ * block of markup in the transcript loop: the bubble's shape, the inline editor,
+ * and the right-click menu. Inlining it again is what would make the editor a
+ * special case in the middle of a `map`.
+ */
+function MessageBubble({
+    message,
+    own,
+    grouped,
+    readByAll,
+    editing,
+    locale,
+    currency,
+    onStartEdit,
+    onCancelEdit,
+    onSaveEdit,
+    onOpenMenu,
+}: {
+    message: ChatMessage;
+    own: boolean;
+    grouped: boolean;
+    readByAll: boolean;
+    editing: boolean;
+    locale: string;
+    currency: string;
+    onStartEdit: () => void;
+    onCancelEdit: () => void;
+    onSaveEdit: (body: string) => void;
+    onOpenMenu: (message: ChatMessage, state: ContextMenuState) => void;
+}) {
+    const { t } = useTranslation();
+
+    /*
+     * Only acts when the right-click landed on *this* bubble. Every bubble has the
+     * same handler shape, and the one whose id matches the element under the pointer
+     * is the one that owns the gesture.
+     */
+    const onContextMenu = useContextMenu((state) => {
+        if (
+            Number(state.target?.dataset['messageId'] ?? Number.NaN) ===
+            message.id
+        ) {
+            onOpenMenu(message, state);
+        }
+    });
+
+    if (isPaymentTrail(message.kind)) {
+        return (
+            <div className="my-3 flex justify-center px-6">
+                <div className="w-full max-w-md rounded-lg border border-border-default bg-neutral-secondary-soft px-3 py-2.5 text-center">
+                    <Badge variant={paymentBadge[message.kind]}>
+                        {t(`chat.payment.kinds.${message.kind}`)}
+                    </Badge>
+
+                    {message.amount !== null ? (
+                        <p className="mt-1.5 font-heading text-sm font-bold text-heading">
+                            {formatCurrency(message.amount, locale, currency)}
+                        </p>
+                    ) : null}
+
+                    {/*
+              Rendered per message rather than from the room prop, so a payment that
+              is still in flight keeps showing the code the winner actually paid even
+              after the platform's account changes.
+            */}
+                    {message.qris_url ? (
+                        <div className="mt-2">
+                            <PaymentQrisCard
+                                qris={{
+                                    image_url: message.qris_url,
+                                    account_name: null,
+                                    account_number: null,
+                                }}
+                            />
+                        </div>
+                    ) : null}
+
+                    {message.proof_url ? (
+                        <a
+                            href={message.proof_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-2 block"
+                        >
+                            <img
+                                src={message.proof_url}
+                                alt=""
+                                className="mx-auto max-h-48 border border-border-default object-contain"
+                            />
+                        </a>
+                    ) : null}
+
+                    <p className="mt-1.5 text-xs whitespace-pre-wrap text-body-subtle">
+                        {message.body}
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div
+            className={cn(
+                'flex',
+                own ? 'justify-end' : 'justify-start',
+                // A run of messages from one person is one turn: tight underneath,
+                // clearly separated from the next one. 4px versus 12px is the whole
+                // difference, and it is what stops a thread reading as a wall.
+                grouped ? 'mt-1' : 'mt-3',
+                !own && 'mb-0.5',
+            )}
+        >
+            <div
+                // The id is how the transcript loop's menu handler knows which
+                // bubble a right-click landed on, and it is also the id the edit
+                // and delete endpoints address.
+                data-message-id={message.id}
+                onContextMenu={onContextMenu}
+                // Double-click is the shortcut people already know from every other
+                // chat app, and it is the only way to reach the editor without a
+                // right-click. `canEdit` gates it, so somebody else's message does
+                // not open an editor the server would refuse.
+                onDoubleClick={
+                    message.can_edit === true && !editing
+                        ? onStartEdit
+                        : undefined
+                }
+                title={
+                    message.can_edit === true && !editing
+                        ? t('chat.actions.edit')
+                        : undefined
+                }
+                className={cn(
+                    // 70% of the panel on desktop, 85% on a phone: the widest a
+                    // bubble can get before it stops reading as a message and
+                    // starts reading as a paragraph.
+                    'max-w-[85%] rounded-xl px-3 py-2 sm:max-w-[70%]',
+                    own ? 'bg-brand-softer' : 'bg-neutral-secondary-soft',
+                    // Only the corner nearest the sender's side is squared, and only
+                    // on a bubble that starts a run: a tail in the middle of a run
+                    // points at nothing.
+                    grouped
+                        ? own
+                            ? 'rounded-br-xl'
+                            : 'rounded-bl-xl'
+                        : own
+                          ? 'rounded-br-sm'
+                          : 'rounded-bl-sm',
+                )}
+            >
+                {/*
+                 * The name heads a run and only a run. Printing it on every bubble
+                 * of three consecutive messages is noise; so is printing it once on a
+                 * run that continues below, which is why `grouped` decides rather
+                 * than "is there an earlier message by this person".
+                 */}
+                {!own && !grouped ? (
+                    <p className="mb-1 text-xs font-semibold text-fg-brand-strong">
+                        {message.sender_name ?? t('chat.roles.member')}
+                    </p>
+                ) : null}
+
+                {message.attachments.length > 0 ? (
+                    <AttachmentGrid
+                        attachments={message.attachments}
+                        locale={locale}
+                    />
+                ) : null}
+
+                {editing ? (
+                    <InlineEditor
+                        message={message}
+                        onCancel={onCancelEdit}
+                        onSave={onSaveEdit}
+                    />
+                ) : message.body !== '' ? (
+                    // 13.5px: a size that fits a name and a sentence without the
+                    // transcript turning into a column of long words on a phone.
+                    <p className="text-[13.5px] leading-5 whitespace-pre-wrap text-heading">
+                        {message.body}
+                    </p>
+                ) : null}
+
+                {/*
+                 * The time rides inside the bubble, right-aligned, and is the only
+                 * grey thing in it. On a run it is still printed — a message without
+                 * a time cannot be placed — but it sits tight against the text
+                 * above it.
+                 */}
+                <p
+                    className={cn(
+                        'flex items-center justify-end gap-1 text-[10px] text-body-subtle',
+                        grouped ? 'mt-0' : 'mt-1',
+                        editing && 'mt-2',
+                    )}
+                >
+                    {formatTime(message.created_at, locale)}
+
+                    {/*
+                     * The "edited" mark. Without it a corrected account number is
+                     * indistinguishable from one that was always right, and the
+                     * whole point of letting somebody fix a typo is that the fix can
+                     * be trusted — which needs the reader to know one happened.
+                     */}
+                    {message.edited_at != null && !editing ? (
+                        <span className="italic">
+                            · {t('chat.actions.edited')}
+                        </span>
+                    ) : null}
+
+                    {/* Only the viewer's own messages carry a delivery state: a
+                    tick on someone else's would claim something about their
+                    send. */}
+                    {own ? (
+                        <DeliveryTick
+                            state={
+                                message.read_by_all || readByAll
+                                    ? 'read'
+                                    : 'sent'
+                            }
+                        />
+                    ) : null}
+                </p>
+            </div>
+        </div>
+    );
+}
+
+/**
+ * Editing a message in place, inside its own bubble.
+ *
+ * A textarea rather than a one-line input because the mistake being corrected is
+ * often a paragraph, and an editor that cannot hold the sentence being corrected
+ * is not an editor. Enter saves and Escape cancels, which are the two things a
+ * keyboard user expects and which cost nothing to provide here.
+ */
+function InlineEditor({
+    message,
+    onCancel,
+    onSave,
+}: {
+    message: ChatMessage;
+    onCancel: () => void;
+    onSave: (body: string) => void;
+}) {
+    const { t } = useTranslation();
+    const [body, setBody] = useState(message.body);
+    const areaRef = useRef<HTMLTextAreaElement | null>(null);
+
+    useEffect(() => {
+        const node = areaRef.current;
+
+        if (node === null) {
+            return;
+        }
+
+        node.focus();
+        // The end of the text, not the start: the sentence being corrected is
+        // usually at the end of it.
+        node.setSelectionRange(node.value.length, node.value.length);
+    }, []);
+
+    return (
+        <div className="min-w-[16rem]">
+            <label htmlFor={`edit-${message.id}`} className="sr-only">
+                {t('chat.actions.edit')}
+            </label>
+
+            <textarea
+                id={`edit-${message.id}`}
+                ref={areaRef}
+                rows={3}
+                value={body}
+                onChange={(event) => setBody(event.target.value)}
+                onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                        event.preventDefault();
+                        onSave(body);
+                    }
+
+                    if (event.key === 'Escape') {
+                        event.preventDefault();
+                        onCancel();
+                    }
+                }}
+                className="no-scrollbar max-h-40 w-full resize-none overflow-y-auto rounded-lg border border-border-default bg-neutral-primary-soft p-2 text-[13.5px] leading-5 text-heading focus:border-border-brand focus:outline-none"
+            />
+
+            <div className="mt-1.5 flex items-center justify-end gap-2">
+                <button
+                    type="button"
+                    onClick={onCancel}
+                    className="text-xs font-medium text-body-subtle underline underline-offset-4 hover:no-underline"
+                >
+                    {t('chat.actions.edit_cancel')}
+                </button>
+
+                <button
+                    type="button"
+                    onClick={() => onSave(body)}
+                    className={buttonClasses('brand', 'px-2.5 py-1 text-xs')}
+                >
+                    {t('chat.actions.edit_save')}
+                </button>
+            </div>
+        </div>
+    );
+}
+
+/**
+ * The menu on one message's right-click.
+ *
+ * Which items appear is not decided here. `can_edit` and `can_delete_for_all` come
+ * from the server, so a menu can never offer an action the endpoint will refuse —
+ * and a menu that offers one and then says no is worse than one that never offered
+ * it.
+ */
+function MessageMenu({
+    state,
+    message,
+    onClose,
+    onEdit,
+    onDelete,
+}: {
+    state: ContextMenuState;
+    message: ChatMessage;
+    onClose: () => void;
+    onEdit: () => void;
+    onDelete: (scope: 'self' | 'everyone') => void;
+}) {
+    const { t } = useTranslation();
+
+    const items: ContextMenuItem[] = [];
+
+    if (message.can_edit === true) {
+        items.push({
+            key: 'edit',
+            label: t('chat.actions.edit'),
+            onSelect: onEdit,
+        });
+    }
+
+    // Available to anybody in the room: it writes a tombstone in the viewer's own
+    // name and removes nothing.
+    items.push({
+        key: 'delete-self',
+        label: t('chat.actions.delete_self'),
+        hint: t('chat.actions.delete_self_hint'),
+        onSelect: () => onDelete('self'),
+    });
+
+    if (message.can_delete_for_all === true) {
+        items.push({
+            key: 'delete-everyone',
+            label: t('chat.actions.delete_everyone'),
+            hint: t('chat.actions.delete_everyone_hint'),
+            tone: 'danger',
+            onSelect: () => onDelete('everyone'),
+        });
+    }
+
+    return (
+        <ContextMenu
+            state={state}
+            items={items}
+            label={t('chat.actions.menu')}
+            onClose={onClose}
+        />
     );
 }
 
@@ -885,7 +1435,7 @@ function ChatComposer({
     return (
         <form
             onSubmit={onSubmit}
-            className="shrink-0 border-t border-border-default bg-neutral-primary-soft px-3 py-2.5 sm:px-4"
+            className="shrink-0 border-t border-border-default bg-neutral-primary-soft px-3 py-2 sm:px-4"
         >
             {data.attachments.length > 0 ? (
                 <div className="mb-2 flex flex-wrap gap-2">
@@ -1096,8 +1646,8 @@ function DraftThread({
     const { locale } = usePage().props;
 
     return (
-        <div className="flex min-w-0 flex-1 flex-col">
-            <header className="z-10 flex shrink-0 items-center gap-3 border-b border-border-default bg-neutral-primary-soft px-3 py-2.5 sm:px-4">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <header className="z-10 flex h-14 shrink-0 items-center gap-2.5 border-b border-border-default bg-neutral-primary-soft px-3 sm:px-4">
                 <button
                     type="button"
                     onClick={onBack}
@@ -1108,12 +1658,10 @@ function DraftThread({
                 </button>
 
                 <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-full bg-brand-soft font-heading text-xs font-bold text-fg-brand-strong">
-                        {initials(t('chat.roles.admin'))}
-                    </span>
+                    <Avatar name={t('chat.roles.admin')} size={36} />
 
                     <span className="min-w-0">
-                        <span className="block truncate font-heading text-sm font-bold text-heading">
+                        <span className="block truncate font-heading text-sm font-semibold text-heading">
                             {t('chat.show.support_title')}
                         </span>
                         <span className="block truncate text-xs text-body-subtle">
@@ -1123,7 +1671,7 @@ function DraftThread({
                 </div>
             </header>
 
-            <ScrollArea className="flex-1 overflow-y-auto px-3 py-4 sm:px-4">
+            <ScrollArea className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4">
                 {pending.map((entry) => (
                     <PendingBubble
                         key={entry.key}

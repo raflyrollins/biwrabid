@@ -34,6 +34,7 @@ use Illuminate\Support\Facades\Storage;
  * @property string|null $proof_path
  * @property string|null $qris_path
  * @property array<int, array{path: string, name: string, size: int}>|null $attachments
+ * @property CarbonImmutable|null $edited_at
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  */
@@ -42,6 +43,15 @@ class ChatMessage extends Model
 {
     /** @use HasFactory<ChatMessageFactory> */
     use HasFactory;
+
+    /**
+     * How long a sender may correct or retract their own message, in minutes.
+     *
+     * One number for both operations because they answer the same question — "is
+     * this still fresh enough that nobody has built on it?" — and two deadlines
+     * would only differ by accident.
+     */
+    public const int editWindowMinutes = 10;
 
     /**
      * Defaults for attributes the column only sets on the database side.
@@ -71,6 +81,9 @@ class ChatMessage extends Model
             'kind' => ChatMessageKind::class,
             'amount' => 'integer',
             'attachments' => 'array',
+            // Cast like the other timestamps so `edited_at !== null` is the whole
+            // check — an uncast string would compare truthily for `''`.
+            'edited_at' => 'datetime',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];
@@ -146,6 +159,89 @@ class ChatMessage extends Model
     public function reads(): HasMany
     {
         return $this->hasMany(ChatMessageRead::class, 'chat_message_id');
+    }
+
+    /**
+     * The people who have hidden this message from their own transcript.
+     *
+     * @return HasMany<ChatMessageDeletion, $this>
+     */
+    public function deletions(): HasMany
+    {
+        return $this->hasMany(ChatMessageDeletion::class, 'chat_message_id');
+    }
+
+    /**
+     * Whether this person has deleted this message for themselves.
+     */
+    public function isHiddenFor(?User $viewer): bool
+    {
+        if ($viewer === null) {
+            return false;
+        }
+
+        $deletions = $this->relationLoaded('deletions')
+            ? $this->deletions
+            : $this->deletions()->where('user_id', $viewer->id)->get();
+
+        return $deletions->contains('user_id', $viewer->id);
+    }
+
+    /**
+     * How long ago this message was written, against the window in which the
+     * author may still take it back for everybody.
+     *
+     * A message that can be retracted outright needs a deadline, and a long one
+     * means a long stretch of time in which the sender and the reader are looking
+     * at different threads. Ten minutes is short enough that somebody still has the
+     * thread open to notice, and long enough to cover a mistyped number that
+     * somebody had to go and check.
+     */
+    public function isWithinEditWindow(): bool
+    {
+        return $this->created_at !== null
+            && $this->created_at->diffInMinutes(now()) < self::editWindowMinutes;
+    }
+
+    /**
+     * Whether this person may correct the text of this message.
+     *
+     * The author only, and only while the message has no attachments: an edit that
+     * silently leaves the old screenshot in place would be worse than no edit at
+     * all, and the alternative — swapping files out from under the people reading
+     * them — is not something this app should do without saying so.
+     */
+    public function canBeEditedBy(?User $viewer): bool
+    {
+        if ($viewer === null || $this->user_id === null) {
+            return false;
+        }
+
+        if ($this->user_id !== $viewer->id) {
+            return false;
+        }
+
+        if ($this->kind !== ChatMessageKind::Message) {
+            return false;
+        }
+
+        return $this->attachments === null || $this->attachments === [];
+    }
+
+    /**
+     * Whether this person may take this message back for everybody.
+     *
+     * Only the author, and only inside the window. An admin moderating a dispute is
+     * a separate question answered by the payment trail rather than by erasing the
+     * words somebody else wrote.
+     */
+    public function canBeDeletedForAllBy(?User $viewer): bool
+    {
+        if ($viewer === null || $this->user_id === null || $this->user_id !== $viewer->id) {
+            return false;
+        }
+
+        return $this->isWithinEditWindow();
     }
 
     /**

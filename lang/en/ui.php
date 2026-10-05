@@ -301,6 +301,67 @@ return [
             'empty_title' => 'No conversations yet',
             'empty_body' => 'Start a chat with the admin for payments, or open the private seller chat once you have won.',
             'list_label' => 'Conversation list',
+            'search' => 'Search conversations…',
+            'search_clear' => 'Clear search',
+            'search_empty' => 'No conversations match',
+            'unread' => 'Unread messages',
+        ],
+
+        /*
+        | Correcting and removing what a person wrote: the right-click menu, the
+        | inline editor, and the outcomes. `*_refused` exists because the server
+        | re-checks every one of these — a menu that was open when somebody else
+        | posted, or a window that closed while it was open — and a silent no-op
+        | would read as a broken button.
+        */
+        'actions' => [
+            /*
+            | Storefront buttons: opening the group thread and the credential
+            | handoff from an auction.
+            */
+            'open_group_chat_winner' => 'Chat with Winner',
+            'open_group_chat_seller' => 'Chat with Seller',
+            'open_credentials_winner' => 'Send Credentials',
+            'open_credentials_seller' => 'Receive Credentials',
+            'credentials_hint' => 'Only you and the other party can read credentials here, not the admin.',
+
+            /*
+            | The right-click menu on a room and on a message: closing a thread,
+            | editing what you wrote, and the two meanings of deleting it. Each
+            | action that can disappear somebody's data says what it leaves
+            | behind, because "delete" on a payment thread is not one decision.
+            |
+            | One array rather than two with the same name: a repeated key in the
+            | same block silently replaces the earlier one, so the storefront
+            | buttons would have overwritten these (or the other way round) and
+            | the loser would have shown up as a raw `chat.actions.*` string in
+            | the UI.
+            */
+            'menu' => 'Message options',
+            'close_room' => 'Close chat',
+            'dismiss_room' => 'Delete chat',
+            'dismiss_room_hint' => 'Removed from your list only. The messages stay for everyone else.',
+            'edit' => 'Edit message',
+            'edit_save' => 'Save',
+            'edit_cancel' => 'Cancel',
+            'edit_placeholder' => 'Rewrite your message…',
+            'delete_self' => 'Delete for me',
+            'delete_self_hint' => 'Removed from your view only. The message stays for everyone else.',
+            'delete_everyone' => 'Delete for everyone',
+            'delete_everyone_hint' => 'The message is permanently removed from this conversation.',
+            'delete_expired' => 'Deleting for everyone is only possible within 10 minutes of sending.',
+            'edited' => 'edited',
+            'confirm_delete_everyone' => 'Delete this message for everyone?',
+            'confirm_dismiss_room' => 'Remove this conversation from your list?',
+        ],
+
+        'feedback' => [
+            'edited' => 'Message updated.',
+            'edit_refused' => 'That message can no longer be edited.',
+            'deleted_self' => 'Message removed from your view.',
+            'deleted_everyone' => 'Message deleted for everyone.',
+            'delete_refused' => 'That message can no longer be deleted.',
+            'room_closed' => 'Conversation closed from your list.',
         ],
 
         'show' => [
@@ -354,14 +415,6 @@ return [
             'support' => 'Help',
             'group' => 'Auction Group',
             'auction' => 'Credentials',
-        ],
-
-        'actions' => [
-            'open_group_chat_winner' => 'Chat with Winner',
-            'open_group_chat_seller' => 'Chat with Seller',
-            'open_credentials_winner' => 'Send Credentials',
-            'open_credentials_seller' => 'Receive Credentials',
-            'credentials_hint' => 'Only you and the other party can read credentials here, not the admin.',
         ],
 
         'fields' => [

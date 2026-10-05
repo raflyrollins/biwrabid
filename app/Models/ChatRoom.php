@@ -90,6 +90,55 @@ class ChatRoom extends Model
     }
 
     /**
+     * Rooms this person has closed for themselves.
+     *
+     * Exposed as a relation so the room list can exclude them in the same query
+     * rather than filtering in PHP after loading every row.
+     *
+     * @return HasMany<ChatRoomDismissal, $this>
+     */
+    public function dismissals(): HasMany
+    {
+        return $this->hasMany(ChatRoomDismissal::class, 'chat_room_id');
+    }
+
+    /**
+     * Whether this person has closed this conversation for themselves.
+     */
+    public function isDismissedFor(?User $viewer): bool
+    {
+        if ($viewer === null) {
+            return false;
+        }
+
+        // Resolved through the relation when it is already loaded and queried once
+        // otherwise, so calling this in a loop over a list does not become a query
+        // per row for something the list already has.
+        $dismissals = $this->relationLoaded('dismissals')
+            ? $this->dismissals
+            : $this->dismissals()->where('user_id', $viewer->id)->get();
+
+        return $dismissals->contains('user_id', $viewer->id);
+    }
+
+    /**
+     * This room's messages as one person sees them.
+     *
+     * "Delete for me" is a tombstone per message, so the thread has to leave them
+     * out — and leave them out in the query rather than after loading the page,
+     * because a tombstoned message must not even be counted by the pagination.
+     *
+     * @return HasMany<ChatMessage, $this>
+     */
+    public function messagesVisibleTo(User $viewer): HasMany
+    {
+        return $this->messages()
+            ->whereDoesntHave('deletions', function ($deletions) use ($viewer): void {
+                $deletions->where('user_id', $viewer->id);
+            });
+    }
+
+    /**
      * Every read receipt written against this room's messages.
      *
      * Reached through `chat_message_id` rather than carrying a `chat_room_id` of
@@ -257,7 +306,7 @@ class ChatRoom extends Model
     public function counterparties(?User $viewer = null): array
     {
         if ($this->isSupport()) {
-            return [];
+            return $this->supportCounterparties($viewer);
         }
 
         $auction = $this->auction;
@@ -294,6 +343,44 @@ class ChatRoom extends Model
         }
 
         return $counterparties;
+    }
+
+    /**
+     * The other side of a member <-> admin thread.
+     *
+     * A support room used to list nobody, which left the admin's inbox showing a
+     * row of identical "Help & Payment" entries with no way to tell whose thread
+     * was whose — the one thing an inbox exists to answer.
+     *
+     * The two sides are deliberately different. For an admin the counterpart is
+     * the member, who has a name; for the member it is the admin, and there can
+     * be several admins with no single one to name, so the entry carries the role
+     * and a null name and the client falls back to the role label. Returning a
+     * literal "Admin" here would put an untranslatable string in a model.
+     *
+     * @return array<int, array{id: int|null, name: string|null, role: ChatParticipantRole}>
+     */
+    private function supportCounterparties(?User $viewer): array
+    {
+        $initiator = $this->initiator;
+
+        if ($initiator === null) {
+            return [];
+        }
+
+        if ($viewer !== null && $viewer->id === $initiator->id) {
+            return [
+                ['id' => null, 'name' => null, 'role' => ChatParticipantRole::Admin],
+            ];
+        }
+
+        return [
+            [
+                'id' => $initiator->id,
+                'name' => $initiator->name,
+                'role' => ChatParticipantRole::Member,
+            ],
+        ];
     }
 
     /**

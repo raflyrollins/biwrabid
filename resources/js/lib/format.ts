@@ -19,9 +19,17 @@ export function localDayKey(value: string | Date): string {
 }
 
 /**
- * A date separator's label: the time for today, the weekday within the week,
- * and the full date beyond that — the same progression WhatsApp uses, so a
- * thread stays readable without opening anything.
+ * A date separator's label: today, yesterday, the weekday inside the week, and
+ * the full date beyond that.
+ *
+ * Never the time. A separator that reads "09.18" is the one thing in a thread
+ * nobody can place: it looks like a clock, and every message under it already
+ * carries its own. The instant belongs in the bubble; the separator says which
+ * day the bubble is on.
+ *
+ * Capitalised because it is a heading, not a sentence. `Intl.RelativeTimeFormat`
+ * lower-cases in most locales — Indonesian gives "hari ini" — which reads as a
+ * fragment floating between two bubbles rather than as a label.
  */
 export function formatDaySeparator(
     value: string | Date | null,
@@ -37,11 +45,14 @@ export function formatDaySeparator(
         return '';
     }
 
-    const today = localDayKey(new Date());
+    const today = new Date();
 
-    if (localDayKey(date) === today) {
-        return new Intl.DateTimeFormat(locale, { timeStyle: 'short' }).format(
-            date,
+    if (localDayKey(date) === localDayKey(today)) {
+        return capitalise(
+            new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(
+                0,
+                'day',
+            ),
         );
     }
 
@@ -49,17 +60,36 @@ export function formatDaySeparator(
     yesterday.setDate(yesterday.getDate() - 1);
 
     if (localDayKey(date) === localDayKey(yesterday)) {
-        return new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(
-            -1,
-            'day',
+        return capitalise(
+            new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(
+                -1,
+                'day',
+            ),
         );
     }
 
-    return new Intl.DateTimeFormat(locale, {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
-    }).format(date);
+    return capitalise(
+        new Intl.DateTimeFormat(locale, {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long',
+        }).format(date),
+    );
+}
+
+/**
+ * Upper-case the first letter and leave the rest alone.
+ *
+ * Locale-aware for the languages this app ships: `toLocaleUpperCase` turns "i"
+ * into "I" in Indonesian and Turkish alike, and leaves scripts without case
+ * untouched.
+ */
+function capitalise(text: string): string {
+    if (text === '') {
+        return text;
+    }
+
+    return text[0].toLocaleUpperCase() + text.slice(1);
 }
 
 /** The clock time alone, for the corner of a message bubble. */

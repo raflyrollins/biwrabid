@@ -47,10 +47,26 @@ export type ChatMessage = {
     sender_role: ChatParticipantRole;
     created_at: string | null;
     /**
+     * Non-null once the sender has corrected the text, which is what puts the
+     * "edited" mark on the bubble: without it a corrected account number is
+     * indistinguishable from one that was always right.
+     */
+    edited_at?: string | null;
+    /**
      * Whether every other participant in the room has read this message. Decided
      * on the server because it depends on who is in the room.
      */
     read_by_all: boolean;
+    /**
+     * What *this* viewer may do with the message, sent by the thread page only.
+     *
+     * Optional because a broadcast payload is one payload for everybody in the room,
+     * and "may I edit this" is different for the author and the admin reading over
+     * their shoulder. Decided on the server so a stale menu cannot offer an action
+     * the endpoint would refuse.
+     */
+    can_edit?: boolean;
+    can_delete_for_all?: boolean;
 };
 
 export type ChatCounterparty = {

@@ -7,6 +7,8 @@ use App\Enums\ChatRoomType;
 use App\Models\ChatMessage;
 use App\Models\ChatRoom;
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * The member's support thread, created by the first message rather than by the
@@ -52,16 +54,13 @@ it('creates the room and the first message together', function (): void {
         ->assertRedirect();
 
     $room = ChatRoom::query()->sole();
+    $message = $room->messages()->sole();
 
     expect($room->type)->toBe(ChatRoomType::Support)
         ->and($room->initiator_id)->toBe($member->id)
-        // The redirect names the room it just created, so the member lands in the
-        // conversation they started rather than back on an empty list.
-        ->and($room->messages()->sole()->body)->toBe('Halo, saya butuh bantuan pembayaran.');
-
-    $this->assertTrue(
-        ChatRoom::query()->sole()->messages()->sole()->is($member),
-    );
+        ->and($message->body)->toBe('Halo, saya butuh bantuan pembayaran.')
+        // Written by the member, not by whoever happened to open the thread.
+        ->and($message->user_id)->toBe($member->id);
 });
 
 it('lands the member in the conversation it just started', function (): void {
@@ -115,16 +114,24 @@ it('creates nothing when the first message is empty', function (): void {
 });
 
 it('starts the thread from an attachment alone', function (): void {
+    Storage::fake('public');
+
     $member = User::factory()->create();
     User::factory()->admin()->create();
 
     // A screenshot of an account is the common case, and it needs no caption.
     $this->actingAs($member)
-        ->post(route('chat.support'), ['body' => '', 'attachments' => [UploadedFile::fake()->image('bukti.png')]])
+        ->post(route('chat.support'), [
+            'body' => '',
+            'attachments' => [UploadedFile::fake()->image('bukti.png')],
+        ])
         ->assertSessionHasNoErrors();
 
-    expect(ChatRoom::query()->count())->toBe(1)
-        ->and(ChatRoom::query()->sole()->messages()->sole()->kind)->toBe(ChatMessageKind::Message);
+    $message = ChatRoom::query()->sole()->messages()->sole();
+
+    expect($message->kind)->toBe(ChatMessageKind::Message)
+        ->and($message->body)->toBe('')
+        ->and($message->attachmentList())->toHaveCount(1);
 });
 
 it('refuses to let an admin open a support thread', function (): void {
@@ -173,24 +180,21 @@ it('prefers the open room over a draft', function (): void {
 });
 
 it('keeps the message rules identical to a thread reply', function (): void {
+    Storage::fake('public');
+
     $member = User::factory()->create();
     User::factory()->admin()->create();
 
     $room = ChatRoom::factory()->support($member)->create();
+    $exe = fn (): UploadedFile => UploadedFile::fake()->create('virus.exe', 10, 'application/octet-stream');
 
     // The first message is validated by the same rules as any other, or "attach a
     // photo" would work in a thread and fail on the very first send.
     $this->actingAs($member)
-        ->post(route('chat.support'), [
-            'body' => 'Halo',
-            'attachments' => [UploadedFile::fake()->create('virus.exe', 10, 'application/octet-stream')],
-        ])
+        ->post(route('chat.support'), ['body' => 'Halo', 'attachments' => [$exe()]])
         ->assertSessionHasErrors('attachments.0');
 
     $this->actingAs($member)
-        ->post(route('chat.messages.store', $room), [
-            'body' => 'Halo',
-            'attachments' => [UploadedFile::fake()->create('virus.exe', 10, 'application/octet-stream')],
-        ])
+        ->post(route('chat.messages.store', $room), ['body' => 'Halo', 'attachments' => [$exe()]])
         ->assertSessionHasErrors('attachments.0');
 });

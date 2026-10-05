@@ -130,7 +130,7 @@ class ChatRoomController extends Controller
             // Null when nothing is open, which is what puts the "pick a
             // conversation" panel in the right half rather than an empty thread.
             'room' => $room === null ? null : ChatPresenter::room($room, $user),
-            'thread' => $room === null ? null : $this->thread($room),
+            'thread' => $room === null ? null : $this->thread($room, $user),
             'draft' => $draft,
             'isAdminInbox' => $user->is_admin,
             'maxLength' => ChatConfig::messageMaxLength(),
@@ -146,15 +146,19 @@ class ChatRoomController extends Controller
      *
      * @return array<string, mixed>
      */
-    private function thread(ChatRoom $room): array
+    private function thread(ChatRoom $room, User $viewer): array
     {
-        $page = $room->messages()
+        $page = $room->messagesVisibleTo($viewer)
             ->with(['sender', 'reads'])
             ->latest('id')
             ->paginate(ChatConfig::messagesPerPage());
 
         return [
-            'messages' => ChatPresenter::messages(array_reverse($page->items()), $room),
+            'messages' => ChatPresenter::messages(
+                array_reverse($page->items()),
+                $room,
+                $viewer,
+            ),
             'total' => $page->total(),
             'current_page' => $page->currentPage(),
             'last_page' => $page->lastPage(),
@@ -177,6 +181,12 @@ class ChatRoomController extends Controller
     {
         $query = ChatRoom::query()
             ->with(['auction.seller', 'auction.winner', 'initiator', 'latestMessage.sender'])
+            ->whereDoesntHave('dismissals', function ($dismissals) use ($user): void {
+                // "Close this chat for me" removes the row from this person's
+                // list and nothing else — the room keeps existing for the other
+                // participants and for the payment trail behind it.
+                $dismissals->where('user_id', $user->id);
+            })
             ->latest('updated_at');
 
         if ($user->is_admin) {

@@ -2,6 +2,9 @@ import { usePage } from '@inertiajs/react';
 
 export type TranslationValues = Record<string, string | number>;
 
+/** What `t()` is: a key, optional `:placeholder` values, a rendered string. */
+export type Translate = (key: string, values?: TranslationValues) => string;
+
 function lookup(
     translations: Record<string, unknown>,
     key: string,
